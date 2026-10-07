@@ -1,13 +1,16 @@
 #include "ui/UIApplication.h"
 #include "ui/Widgets.h"
 #include "ui/CanvasGroup.h"
+#include "common/FrameRateCounter.h"
 
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
 
 #include <cstdio>
+#include <cmath>
 #include <memory>
 #include <string>
+#include <vector>
 
 using namespace ui;
 
@@ -60,6 +63,16 @@ int main(int argc, char** argv) {
     title->SetFontScale(1.0f);
     title->SetFontThickness(2);
     title->SetColor(Color::White());
+
+    // ===== 帧率显示（右上角）=====
+    FrameRateCounter frc(60);
+    auto* fpsText = root->AddChild<Text>();
+    fpsText->SetRect(1720, 30, 170, 40);
+    fpsText->SetText("FPS: -");
+    fpsText->SetFontScale(0.7f);
+    fpsText->SetFontThickness(2);
+    fpsText->SetAlignment(Text::HAlign::Right, Text::VAlign::Middle);
+    fpsText->SetColor({0.3f, 1.0f, 0.5f, 1.0f});
 
     // ===== 按钮 + 点击计数 =====
     int clickCount = 0;
@@ -193,8 +206,17 @@ int main(int argc, char** argv) {
     }
 
     // 显示模式主循环
+    int lastFps = -1;
     while (!app.ShouldClose()) {
         app.RunFrame();
+        frc.tick();
+        int f = (int)std::lround(frc.fps());
+        if (f != lastFps) {
+            lastFps = f;
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "FPS: %d", f);
+            fpsText->SetText(buf);
+        }
     }
     return 0;
 }

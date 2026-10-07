@@ -31,6 +31,7 @@ add_library(ui STATIC
     src/Widgets.cpp
     src/CanvasGroup.cpp
     src/UIApplication.cpp
+    src/common/FrameRateCounter.cpp
 )
 
 target_include_directories(ui PUBLIC
