@@ -19,7 +19,7 @@ struct TextMetrics {
 // ---------------------------------------------------------------------------
 // HarfBuzz + FreeType 文本引擎：排版（shaping）+ 矢量轮廓栅格化为灰度 coverage。
 //   - 支持中文等任意 Unicode（取决于所选字体的覆盖）。
-//   - 通过 Fontconfig 发现字体（无硬编码绝对路径），必要时用候选路径兜底。
+//   - 通过 Fontconfig 发现字体（无硬编码绝对路径），以 sans-serif 家族兜底。
 // ---------------------------------------------------------------------------
 class TextEngine {
 public:
@@ -28,13 +28,17 @@ public:
     // 引擎是否已成功初始化（找到可用字体）
     bool Available() const { return m_face != nullptr; }
 
-    // sizePx：逻辑字号（像素）；thickness：1=常规，2=合成加粗，更大=更强加粗；ss：超采样倍数
+    // sizePx：逻辑字号（1/64..4096 像素）；thickness：<=1 常规，2..1024 合成加粗。
+    // 超出支持范围返回空结果；ss 归一化到 [1,8]，非有限值回退为 1。
     TextMetrics Measure(const std::string& utf8, float sizePx, int thickness) const;
 
-    // 栅格化：返回灰度 coverage 位图（CV_8UC1），尺寸 = 逻辑纹理尺寸 × ss
+    // 栅格化：返回灰度 coverage 位图（CV_8UC1），尺寸 = ceil(逻辑纹理尺寸 × ss)。
     cv::Mat Rasterize(const std::string& utf8, float sizePx, int thickness, float ss) const;
 
 private:
+    friend class TextBox;
+    // 完整文本的 shaping cluster 光标位置（含纹理原点）；避免单独排版前缀丢失 kerning。
+    float CaretPosition(const std::string& utf8, size_t byteOffset, float sizePx, int thickness) const;
     TextEngine();
     ~TextEngine();
     TextEngine(const TextEngine&) = delete;

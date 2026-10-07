@@ -30,9 +30,9 @@ struct TextSize {
 
 // ss 为文字渲染细化倍数（超采样）：以 scale*ss 的字号栅格化轮廓，绘制时缩回 scale 的逻辑尺寸。
 Texture* GetTextTexture(Renderer2D& renderer, const std::string& text, float scale, int thickness, float ss) {
-    if (text.empty()) return nullptr;
+    if (text.empty() || !std::isfinite(scale) || scale <= 0.0f) return nullptr;
     if (!std::isfinite(ss) || ss <= 0.0f) ss = 1.0f;
-    else if (ss > 8.0f) ss = 8.0f;  // 与 TextEngine 的超采样上限一致，避免缓存键发散
+    ss = std::max(1.0f, std::min(ss, 8.0f));  // 与 TextEngine 的范围一致，避免缓存键发散
     TextKey key{text, scale, thickness, ss};
     auto& cache = renderer.TextCache();
     auto it = cache.find(key);
@@ -60,13 +60,6 @@ TextSize MeasureText(const std::string& text, float scale, int thickness) {
     if (!eng.Available()) return {0.0f, 0.0f};
     ui::TextMetrics m = eng.Measure(text, scale * kBaseFontPx, thickness);
     return {m.width, m.height};
-}
-
-float TextPixelWidth(const std::string& text, float scale, int thickness) {
-    if (text.empty()) return 0.0f;
-    TextEngine& eng = TextEngine::Instance();
-    if (!eng.Available()) return 0.0f;
-    return eng.Measure(text, scale * kBaseFontPx, thickness).advance;
 }
 
 } // namespace
@@ -257,7 +250,7 @@ void TextBox::OnDraw(Renderer2D& r) {
 
     // 光标
     if (m_focused) {
-        float cursorX = pad + TextPixelWidth(m_text.substr(0, m_cursor), m_fontScale, m_fontThickness);
+        float cursorX = pad + TextEngine::Instance().CaretPosition(m_text, m_cursor, m_fontScale * kBaseFontPx, m_fontThickness);
         float cursorH = s.y * 0.6f;
         float cursorY = (s.y - cursorH) * 0.5f;
         r.FillRect(cursorX, cursorY, 2.0f, cursorH, m_cursorColor);
@@ -269,14 +262,15 @@ bool TextBox::OnMouseDown(MouseButton b, float lx, float ly) {
     if (b != MouseButton::Left) return false;
     m_focused = true;
 
-    // 点击定位光标（按 ASCII 宽度近似）
-    float pad = 4.0f;
-    float target = lx - pad;
-    if (target <= 0.0f) { m_cursor = 0; return true; }
+    // 点击和绘制共享完整文本 shaping 的 cluster 推进与纹理原点。
+    float target = lx - 4.0f;
+    auto position = [&](size_t offset) {
+        return TextEngine::Instance().CaretPosition(m_text, offset, m_fontScale * kBaseFontPx, m_fontThickness);
+    };
     size_t best = 0;
-    float bestDist = std::fabs(target);
+    float bestDist = std::fabs(position(0) - target);
     for (size_t i = Utf8Next(m_text, 0); i > 0 && i <= m_text.size(); i = Utf8Next(m_text, i)) {
-        float w = TextPixelWidth(m_text.substr(0, i), m_fontScale, m_fontThickness);
+        float w = position(i);
         float d = std::fabs(w - target);
         if (d < bestDist) { bestDist = d; best = i; }
         if (i == m_text.size()) break;

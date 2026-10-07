@@ -107,6 +107,40 @@ static void GeometryRegression() {
           dropdown->GetChild(1)->GetScreenRect().y == 40, "dropdown ratio resize has no one-frame lag");
 }
 
+static void TextEngineRegression() {
+    auto& engine = TextEngine::Instance();
+    Check(engine.Available(), "Fontconfig finds a scalable Unicode font");
+    Check(engine.Measure("", 24, 1).width == 0 && engine.Rasterize("", 24, 1, 1).empty(), "empty text");
+    for (float size : {0.0f, -1.0f, 1e30f, std::numeric_limits<float>::infinity(),
+                       std::numeric_limits<float>::quiet_NaN()}) {
+        Check(engine.Measure("test", size, 1).width == 0 && engine.Rasterize("test", size, 1, 8).empty(),
+              "invalid font sizes fail before conversion or allocation");
+    }
+    Check(engine.Rasterize("test", 24, std::numeric_limits<int>::max(), 1).empty(), "excessive embolden rejected");
+    Check(engine.Rasterize(std::string(4096, 'W'), 4096, 1, 8).empty(), "oversized bitmap rejected without integer overflow");
+    for (const std::string text : {"Hg中文Ii", "jgy", "A\xcc\x81\xcc\x81\xcc\x81", "q\xcc\xa3\xcc\x87", "😀𠀀", "   "}) {
+        for (int thickness : {1, 2, 12}) {
+            auto m = engine.Measure(text, 23.4f, thickness);
+            Check(m.width > 0 && m.height > 0 && m.advance > 0, "Unicode and spaces have metrics");
+            Check(m.advance == engine.Measure(text, 23.4f, 1).advance, "embolden preserves shaping advance");
+            for (float ss : {1.0f, 1.5f, 4.0f, 8.0f}) {
+                auto mask = engine.Rasterize(text, 23.4f, thickness, ss);
+                Check(!mask.empty() && mask.cols == int(std::ceil(m.width * ss)) &&
+                      mask.rows == int(std::ceil(m.height * ss)), "measure and raster dimensions share logical layout");
+                Check(cv::countNonZero(mask.row(0)) == 0 && cv::countNonZero(mask.row(mask.rows - 1)) == 0 &&
+                      cv::countNonZero(mask.col(0)) == 0 && cv::countNonZero(mask.col(mask.cols - 1)) == 0,
+                      "accent, descender, negative bearing and bold ink have uncut margins");
+                Check(text == "   " ? cv::countNonZero(mask) == 0 : cv::countNonZero(mask) > 0,
+                      "spaces are transparent and visible glyphs produce coverage");
+            }
+        }
+    }
+    auto first = engine.Rasterize("基线gj", 19.3f, 1, 1);
+    engine.Rasterize("Other字号", 48, 2, 8);
+    auto again = engine.Rasterize("基线gj", 19.3f, 1, 1);
+    Check(cv::norm(first, again, cv::NORM_INF) == 0, "font size switches do not leave stale HB or FT state");
+}
+
 static void SupersampleRegression(UIApplication& app) {
     const std::string label = "Hg中文Ii";  // 含中文，验证 HB+FT 字形栅格化
     const float scale = .6f;
@@ -136,6 +170,12 @@ static void SupersampleRegression(UIApplication& app) {
         text->SetTextSupersample(ss); app.RenderOffscreen();
         Check(cache.size() == 2, "invalid supersample falls back to one without NaN cache keys");
     }
+    for (float scaleValue : {0.0f, -1.0f, std::numeric_limits<float>::quiet_NaN(),
+                             std::numeric_limits<float>::infinity()}) {
+        text->SetFontScale(scaleValue); app.RenderOffscreen();
+        Check(cache.size() == 2, "invalid scale never enters ordered texture cache");
+    }
+    text->SetFontScale(scale);
     // 超大 ss 被钳制，不报 GL 错误、不产生无界位图
     text->SetTextSupersample(1e30f); app.RenderOffscreen();
     Check(glGetError() == GL_NO_ERROR, "oversized supersample clamped without GL error");
@@ -148,6 +188,16 @@ static void SupersampleRegression(UIApplication& app) {
     Click(app, 4.0f + adv, 20);  // 点击文本末尾（TextBox 内部 pad=4）
     app.InjectChar('X'); app.RunFrame();
     Check(box->GetText() == "IIIIX", "supersample textbox hit and caret use logical advances");
+    // 检查实际光标像素：纹理两侧留白不应丢失。
+    box->SetText("AV"); box->SetCursorColor(Color::Red());
+    auto metrics = TextEngine::Instance().Measure("AV", .6f * 24.0f, 1);
+    float endX = 4 + (metrics.width - metrics.advance) * .5f + metrics.advance;
+    Click(app, endX, 20);
+    Pixel(app.GetFrameBGRA(), int(std::ceil(endX)), 20, {0, 0, 255, 255});
+    app.InjectKey(KEY_HOME, true); app.RunFrame(); app.InjectKey(KEY_HOME, false); app.RunFrame();
+    app.InjectKey(KEY_RIGHT, true); app.RunFrame(); app.InjectKey(KEY_RIGHT, false); app.RunFrame();
+    float kernedX = endX - TextEngine::Instance().Measure("V", .6f * 24.0f, 1).advance;
+    Pixel(app.GetFrameBGRA(), int(std::ceil(kernedX)), 20, {0, 0, 255, 255});
     app.SetRoot<Component>();
 }
 
@@ -180,6 +230,7 @@ int main() {
         cfg.clearColor = Color::Transparent();
         Check(app.Init(cfg), "headless Init");
         GeometryRegression();
+        TextEngineRegression();
         SupersampleRegression(app);
         AlphaRegression(app, cfg);
         Check(app.Init(cfg), "restore transparent regression context");
