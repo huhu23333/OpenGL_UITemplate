@@ -142,6 +142,14 @@ bool Texture::CreateEmpty(int width, int height) {
     return true;
 }
 
+void Texture::GenerateMipmaps() {
+    if (m_id == 0) return;
+    glBindTexture(GL_TEXTURE_2D, m_id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
 void Texture::Release() {
     if (m_id != 0) {
         glDeleteTextures(1, &m_id);

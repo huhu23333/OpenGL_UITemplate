@@ -34,6 +34,10 @@ public:
     // 创建空的渲染目标纹理（未初始化内容），用于离屏 FBO
     bool CreateEmpty(int width, int height);
 
+    // 生成 mipmap 链，并将缩小过滤切换为三线性（GL_LINEAR_MIPMAP_LINEAR）。
+    // 用于离屏渲染目标纹理在按比例缩小呈现时的正确抗锯齿（需在每次内容更新后重新生成）。
+    void GenerateMipmaps();
+
     // 释放 GL 资源
     void Release();
 

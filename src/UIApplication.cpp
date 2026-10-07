@@ -45,6 +45,8 @@ bool UIApplication::Init(const Config& cfg) {
     bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     if (!complete) { Shutdown(); return false; }
+    // 离屏纹理启用 mipmap + 三线性过滤，使呈现时缩小方向也正确抗锯齿
+    m_offscreenTex->GenerateMipmaps();
     SetRoot(std::make_unique<Component>());
     return true;
 }
@@ -241,6 +243,8 @@ void UIApplication::Present() {
     float dh = m_cfg.renderHeight * scale;
     float ox = ((float)ww - dw) * 0.5f;
     float oy = ((float)wh - dh) * 0.5f;
+    // 用最新内容重建 mipmap，缩小时走三线性过滤，避免欠采样锯齿
+    m_offscreenTex->GenerateMipmaps();
     m_renderer->DrawTexture(m_offscreenTex.get(), ox, oy, dw, dh);
     m_renderer->EndFrame();
 
