@@ -171,6 +171,34 @@ int main(int argc, char** argv) {
     fpsText->SetAlignment(Text::HAlign::Right, Text::VAlign::Middle);
     fpsText->SetColor({0.3f, 1.0f, 0.5f, 1.0f});
 
+    // ===== 日志栏（带边框、可滚动的文字显示）=====
+    const float logLineH = 24.0f;
+    const int maxLogLines = 200;
+    auto* logScroll = root->AddChild<ScrollView>();
+    logScroll->SetRect(1000, 470, 460, 550);
+    logScroll->SetBorder(2.0f, {0.40f, 0.50f, 0.60f, 1.0f});
+    logScroll->SetCanvasSize(460.0f, 550.0f);
+    std::vector<std::string> logLines;
+    auto log = [&](const std::string& msg) {
+        logLines.push_back(msg);
+        while ((int)logLines.size() > maxLogLines) logLines.erase(logLines.begin());
+        logScroll->GetChildren().clear();
+        for (size_t i = 0; i < logLines.size(); ++i) {
+            auto* line = logScroll->AddChild<Text>();
+            line->SetRect(8.0f, (float)i * logLineH, 444.0f, logLineH);
+            line->SetText(logLines[i]);
+            line->SetFontScale(0.4f);
+            line->SetColor({0.85f, 0.90f, 0.95f, 1.0f});
+        }
+        float totalH = (float)logLines.size() * logLineH;
+        if (totalH < 550.0f) totalH = 550.0f;
+        logScroll->SetCanvasSize(460.0f, totalH);
+        float maxScroll = totalH - 550.0f;
+        if (maxScroll < 0.0f) maxScroll = 0.0f;
+        logScroll->SetScrollY(maxScroll);
+    };
+    log("demo started");
+
     // ===== 按钮 + 点击计数 =====
     int clickCount = 0;
     auto* btnLabel = root->AddChild<Text>();
@@ -189,6 +217,7 @@ int main(int argc, char** argv) {
         char buf[64];
         std::snprintf(buf, sizeof(buf), "clicks: %d", clickCount);
         btnLabel->SetText(buf);
+        log("button clicked (" + std::to_string(clickCount) + ")");
     });
 
     // ===== 滑块 =====
@@ -207,6 +236,7 @@ int main(int argc, char** argv) {
         char buf[64];
         std::snprintf(buf, sizeof(buf), "value: %.1f", v);
         sliderLabel->SetText(buf);
+        log("slider -> " + std::string(buf));
     });
 
     // ===== 文本框 =====
@@ -216,6 +246,7 @@ int main(int argc, char** argv) {
     textBox->SetFontScale(0.5f);
     textBox->SetOnSubmit([&](TextBox* tb) {
         std::printf("[demo] textbox submit: \"%s\"\n", tb->GetText().c_str());
+        log("textbox submit: \"" + tb->GetText() + "\"");
     });
 
     // ===== 下拉菜单 =====
@@ -252,11 +283,13 @@ int main(int argc, char** argv) {
         char buf[128];
         std::snprintf(buf, sizeof(buf), "yolo box: cx=%.3f cy=%.3f w=%.3f h=%.3f", cx, cy, w, h);
         boxLabel->SetText(buf);
+        log(buf);
     });
     imageDisp->SetOnClick([&](ImageDisplay*, float cx, float cy) {
         char buf[128];
         std::snprintf(buf, sizeof(buf), "click at: x=%.3f y=%.3f (normalized)", cx, cy);
         boxLabel->SetText(buf);
+        log(buf);
     });
 
     // ===== 鼠标捕获框（点击捕获，ESC 释放，显示速度 + 箭头）=====
@@ -298,6 +331,7 @@ int main(int argc, char** argv) {
     dropLabel->SetText("selected: Option A");
     dropdown->SetOnSelect([&](Dropdown*, int, const std::string& item) {
         dropLabel->SetText("selected: " + item);
+        log("dropdown -> " + item);
     });
 
     app.SetRoot(std::move(root));
