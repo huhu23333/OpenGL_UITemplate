@@ -58,6 +58,8 @@ public:
     void FillRect(float x, float y, float w, float h, const Color& c);
     // 描边：在矩形内部绘制指定厚度的边框（厚度<=0 时不绘制）
     void StrokeRect(float x, float y, float w, float h, float thickness, const Color& c);
+    // 线段（指定厚度，任意方向）
+    void DrawLine(float x0, float y0, float x1, float y1, float thickness, const Color& c);
 
     // 绘制完整纹理到目标矩形（等比拉伸）
     void DrawTexture(const Texture* tex, float x, float y, float w, float h,

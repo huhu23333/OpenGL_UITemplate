@@ -8,13 +8,110 @@
 
 #include <cstdio>
 #include <cmath>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
 
 using namespace ui;
 
-// 生成一张测试图像（渐变 + 标注）
+// 纯色矩形（用于演示透明叠加、颜色背景等）
+struct Fill : Component {
+    Color color = Color::Red();
+    void OnDraw(Renderer2D& r) override { r.FillRect(0, 0, m_width, m_height, color); }
+};
+
+// 鼠标捕获框：点击捕获鼠标，按 ESC 释放；捕获期间显示鼠标移动速度并用箭头可视化
+struct MouseCaptureBox : Component {
+    bool captured = false;
+    float speed = 0.0f;       // 像素/秒
+    float angle = 0.0f;       // 移动方向（弧度）
+    Text* speedLabel = nullptr;
+    Text* statusLabel = nullptr;
+
+    void OnDraw(Renderer2D& r) override {
+        Vec2 s = SelfSize();
+        r.FillRect(0, 0, s.x, s.y, {0.09f, 0.11f, 0.15f, 1.0f});
+        Component::OnDraw(r);  // 边框
+
+        // 以中心为原点的速度箭头
+        float cx = s.x * 0.5f;
+        float cy = s.y * 0.5f;
+        float maxLen = std::min(s.x, s.y) * 0.38f;
+        float t = speed / 1500.0f;             // 归一化（1500 px/s 视为满长）
+        if (t > 1.0f) t = 1.0f;
+        float len = t * maxLen;
+        r.FillRect(cx - 3.0f, cy - 3.0f, 6.0f, 6.0f, {1.0f, 1.0f, 1.0f, 1.0f});
+        if (len > 3.0f) {
+            float ex = cx + std::cos(angle) * len;
+            float ey = cy + std::sin(angle) * len;
+            Color arrow = {1.0f, 0.85f, 0.2f, 1.0f};
+            r.DrawLine(cx, cy, ex, ey, 5.0f, arrow);
+            float head = 16.0f;
+            float a1 = angle + 2.6f;  // ~150°
+            float a2 = angle - 2.6f;
+            r.DrawLine(ex, ey, ex + std::cos(a1) * head, ey + std::sin(a1) * head, 4.0f, arrow);
+            r.DrawLine(ex, ey, ex + std::cos(a2) * head, ey + std::sin(a2) * head, 4.0f, arrow);
+        }
+    }
+
+    bool OnMouseDown(MouseButton b, float, float) override {
+        if (b != MouseButton::Left) return false;
+        captured = true;
+        SetMouseCapture(true);
+        const InputState* in = GetInput();
+        lastX = in->mouseX;
+        lastY = in->mouseY;
+        lastTime = std::chrono::steady_clock::now();
+        speed = 0.0f;
+        if (statusLabel) statusLabel->SetText("captured — move mouse, press ESC to release");
+        return true;
+    }
+
+    // 捕获框可聚焦：点击捕获后成为键盘焦点，从而接收 ESC 按键释放
+    bool IsFocusable() const override { return true; }
+
+    bool OnKeyDown(int key) override {
+        if (key == KEY_ESCAPE && captured) {
+            captured = false;
+            SetMouseCapture(false);
+            speed = 0.0f;
+            if (statusLabel) statusLabel->SetText("click to capture mouse (ESC to release)");
+            if (speedLabel) speedLabel->SetText("speed: 0 px/s");
+            return true;
+        }
+        return false;
+    }
+
+    void OnMouseMove(float, float) override {
+        const InputState* in = GetInput();
+        auto now = std::chrono::steady_clock::now();
+        double dt = std::chrono::duration<double>(now - lastTime).count();
+        if (dt > 0.0) {
+            double dx = in->mouseX - lastX;
+            double dy = in->mouseY - lastY;
+            double dist = std::sqrt(dx * dx + dy * dy);
+            if (captured && dist > 0.5) {
+                speed = (float)(dist / dt);
+                angle = (float)std::atan2(dy, dx);
+            }
+            lastX = in->mouseX;
+            lastY = in->mouseY;
+            lastTime = now;
+        }
+        if (speedLabel) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "speed: %.0f px/s", speed);
+            speedLabel->SetText(buf);
+        }
+    }
+
+private:
+    double lastX = 0.0, lastY = 0.0;
+    std::chrono::steady_clock::time_point lastTime{};
+};
+
+
 static cv::Mat MakeTestImage() {
     cv::Mat img(400, 600, CV_8UC3);
     for (int y = 0; y < img.rows; ++y) {
@@ -161,6 +258,23 @@ int main(int argc, char** argv) {
         std::snprintf(buf, sizeof(buf), "click at: x=%.3f y=%.3f (normalized)", cx, cy);
         boxLabel->SetText(buf);
     });
+
+    // ===== 鼠标捕获框（点击捕获，ESC 释放，显示速度 + 箭头）=====
+    auto* mouseBox = root->AddChild<MouseCaptureBox>();
+    mouseBox->SetRect(1000, 100, 460, 340);
+    mouseBox->SetBorder(3.0f, {0.40f, 0.50f, 0.65f, 1.0f});
+    auto* mouseSpeedLabel = mouseBox->AddChild<Text>();
+    mouseSpeedLabel->SetRect(16, 16, 428, 30);
+    mouseSpeedLabel->SetText("speed: 0 px/s");
+    mouseSpeedLabel->SetFontScale(0.5f);
+    mouseSpeedLabel->SetColor(Color::White());
+    auto* mouseStatusLabel = mouseBox->AddChild<Text>();
+    mouseStatusLabel->SetRect(16, 52, 428, 24);
+    mouseStatusLabel->SetText("click to capture mouse (ESC to release)");
+    mouseStatusLabel->SetFontScale(0.4f);
+    mouseStatusLabel->SetColor({0.65f, 0.75f, 0.85f, 1.0f});
+    mouseBox->speedLabel = mouseSpeedLabel;
+    mouseBox->statusLabel = mouseStatusLabel;
 
     // ===== 透明度示例（半透明面板）=====
     auto* translucent = root->AddChild<Text>();

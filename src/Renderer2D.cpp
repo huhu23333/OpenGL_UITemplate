@@ -310,6 +310,24 @@ void Renderer2D::StrokeRect(float x, float y, float w, float h, float t, const C
     FillRect(x + w - t, y + t, t, h - t * 2.0f, c); // right
 }
 
+void Renderer2D::DrawLine(float x0, float y0, float x1, float y1, float thickness, const Color& c) {
+    if (thickness <= 0.0f) return;
+    float dx = x1 - x0, dy = y1 - y0;
+    float len = std::sqrt(dx * dx + dy * dy);
+    if (len < 1e-6f) return;
+    // 单位法向量（垂直于线段方向）
+    float nx = -dy / len * thickness * 0.5f;
+    float ny = dx / len * thickness * 0.5f;
+    BindTexture(nullptr);
+    Vertex v[4] = {
+        {x0 + nx, y0 + ny, 0, 0, c.r, c.g, c.b, c.a},
+        {x1 + nx, y1 + ny, 0, 0, c.r, c.g, c.b, c.a},
+        {x1 - nx, y1 - ny, 0, 0, c.r, c.g, c.b, c.a},
+        {x0 - nx, y0 - ny, 0, 0, c.r, c.g, c.b, c.a},
+    };
+    PushQuad(v);
+}
+
 void Renderer2D::DrawTexture(const Texture* tex, float x, float y, float w, float h, const Color& tint) {
     if (!tex || !tex->Valid()) return;
     DrawTextureSub(tex, 0, 0, (float)tex->Width(), (float)tex->Height(), x, y, w, h, tint);

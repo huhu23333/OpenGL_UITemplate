@@ -363,7 +363,9 @@ void UIApplication::DispatchInput() {
             ValidateInputTargets();
             bool stillPressed = false;
             for (auto* p : m_pressed) if (p && p == m_captured) stillPressed = true;
-            if (!stillPressed) m_captured = nullptr;
+            // 仅在"无按键仍按下 且 捕获组件不再请求捕获"时才释放；
+            // 允许组件在鼠标抬起后继续持有捕获（如"按键才释放"的持久捕获）。
+            if (!stillPressed && m_captured && !m_captured->WantsMouseCapture()) m_captured = nullptr;
         }
     }
 
