@@ -311,10 +311,11 @@ void Renderer2D::StrokeRect(float x, float y, float w, float h, float t, const C
 }
 
 void Renderer2D::DrawLine(float x0, float y0, float x1, float y1, float thickness, const Color& c) {
-    if (thickness <= 0.0f) return;
+    if (!std::isfinite(thickness) || thickness <= 0.0f ||
+        !std::isfinite(x0) || !std::isfinite(y0) || !std::isfinite(x1) || !std::isfinite(y1)) return;
     float dx = x1 - x0, dy = y1 - y0;
-    float len = std::sqrt(dx * dx + dy * dy);
-    if (len < 1e-6f) return;
+    float len = std::hypot(dx, dy);
+    if (!std::isfinite(len) || len < 1e-6f) return;
     // 单位法向量（垂直于线段方向）
     float nx = -dy / len * thickness * 0.5f;
     float ny = dx / len * thickness * 0.5f;

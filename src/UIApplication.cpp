@@ -50,7 +50,10 @@ bool UIApplication::Init(const Config& cfg) {
 }
 
 void UIApplication::Shutdown() {
-    if (m_ctx) m_ctx->MakeCurrent();
+    if (m_ctx) {
+        m_ctx->MakeCurrent();
+        if (m_ctx->IsMouseCaptured()) m_ctx->SetMouseCaptured(false);
+    }
     m_root.reset();
     if (m_fbo) { glDeleteFramebuffers(1, &m_fbo); m_fbo = 0; }
     m_offscreenTex.reset();
@@ -65,7 +68,10 @@ void UIApplication::Shutdown() {
 }
 
 void UIApplication::SetRoot(std::unique_ptr<Component> root) {
-    if (m_ctx) m_ctx->MakeCurrent();
+    if (m_ctx) {
+        m_ctx->MakeCurrent();
+        if (m_ctx->IsMouseCaptured()) m_ctx->SetMouseCaptured(false);
+    }
     m_hover = m_captured = m_focus = nullptr;
     for (int i = 0; i < 3; ++i) { m_pressed[i] = nullptr; m_pressedLife[i].reset(); }
     m_hoverLife.reset(); m_captureLife.reset(); m_focusLife.reset();
@@ -111,7 +117,18 @@ void UIApplication::ValidateInputTargets() {
             if (old && !life.expired()) old->OnMouseCancel((MouseButton)b);
         }
     }
-    if (!IsActive(m_captured, m_captureLife) || !m_captured->WantsMouseCapture()) m_captured = nullptr;
+    if (m_captured && (!IsActive(m_captured, m_captureLife) || !m_captured->WantsMouseCapture())) {
+        auto* old = m_captured;
+        auto life = m_captureLife;
+        m_captured = nullptr;
+        m_captureLife.reset();
+        // 持久捕获可能已没有按下所有者；隐藏/移除时仍须释放系统光标。
+        if (m_ctx && m_ctx->IsMouseCaptured()) m_ctx->SetMouseCaptured(false);
+        if (!life.expired() && old->WantsMouseCapture()) {
+            old->SetMouseCapture(false);
+            old->OnMouseCancel(MouseButton::Left);
+        }
+    }
 }
 
 bool UIApplication::ShouldClose() const {
@@ -360,12 +377,9 @@ void UIApplication::DispatchInput() {
                 Vec2 lp = t->GetMouseLocal();
                 t->OnMouseUp((MouseButton)b, lp.x, lp.y);
             }
+            // 捕获由组件的请求状态决定，与其他鼠标键是否仍按下无关；
+            // 拖拽组件在主键抬起时撤销请求，持久捕获组件则可继续持有。
             ValidateInputTargets();
-            bool stillPressed = false;
-            for (auto* p : m_pressed) if (p && p == m_captured) stillPressed = true;
-            // 仅在"无按键仍按下 且 捕获组件不再请求捕获"时才释放；
-            // 允许组件在鼠标抬起后继续持有捕获（如"按键才释放"的持久捕获）。
-            if (!stillPressed && m_captured && !m_captured->WantsMouseCapture()) m_captured = nullptr;
         }
     }
 

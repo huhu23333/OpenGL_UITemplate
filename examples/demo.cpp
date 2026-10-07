@@ -68,12 +68,16 @@ struct MouseCaptureBox : Component {
         lastY = in->mouseY;
         lastTime = std::chrono::steady_clock::now();
         speed = 0.0f;
+        if (speedLabel) speedLabel->SetText("speed: 0 px/s");
         if (statusLabel) statusLabel->SetText("captured — move mouse, press ESC to release");
         return true;
     }
 
     // 捕获框可聚焦：点击捕获后成为键盘焦点，从而接收 ESC 按键释放
     bool IsFocusable() const override { return true; }
+    void SetFocus(bool focused) override {
+        if (!focused && captured) Release();
+    }
 
     void Release() {
         captured = false;

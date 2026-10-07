@@ -57,6 +57,10 @@ int main() {
         auto* window = glfwGetCurrentContext();
         glfwSwapInterval(0);
         glfwFocusWindow(window);
+        // GLFW cursor warps are ignored until the window manager grants focus.
+        for (int i = 0; i < 20 && !glfwGetWindowAttrib(window, GLFW_FOCUSED); ++i)
+            glfwWaitEventsTimeout(0.01);
+        Check(glfwGetWindowAttrib(window, GLFW_FOCUSED), "test window must own OS focus");
         app.RunFrame(); CheckFrame(app);
         for (const auto& size : {std::pair<int,int>{320, 160}, {200, 300}}) {
             glfwSetWindowSize(window, size.first, size.second);
@@ -64,6 +68,17 @@ int main() {
             int w, h; glfwGetWindowSize(window, &w, &h);
             glfwSetCursorPos(window, w / 2.0, h / 2.0);
             app.RunFrame();
+            if (std::fabs(app.GetInput().mouseX - 80) >= 1 || std::fabs(app.GetInput().mouseY - 60) >= 1) {
+                int currentW, currentH, fbW, fbH;
+                glfwGetWindowSize(window, &currentW, &currentH);
+                glfwGetFramebufferSize(window, &fbW, &fbH);
+                const auto& raw = app.GetContext()->GetRawInput();
+                std::cerr << "mapping: requested center=" << w / 2.0 << ',' << h / 2.0
+                          << " current window=" << currentW << 'x' << currentH
+                          << " framebuffer=" << fbW << 'x' << fbH
+                          << " raw=" << raw.mouseX << ',' << raw.mouseY
+                          << " mapped=" << app.GetInput().mouseX << ',' << app.GetInput().mouseY << '\n';
+            }
             Check(std::fabs(app.GetInput().mouseX - 80) < 1 && std::fabs(app.GetInput().mouseY - 60) < 1, "center input mapping after resize");
             glfwSetCursorPos(window, 0, 0); app.RunFrame();
             Check(!app.GetInput().mouseInside, "letterbox excludes input");

@@ -1,6 +1,7 @@
 #include "ui/UIApplication.h"
 #include "ui/CanvasGroup.h"
 #include "ui/Widgets.h"
+#include "common/FrameRateCounter.h"
 #include <opencv2/imgproc.hpp>
 #include <iostream>
 #include <stdexcept>
@@ -19,6 +20,30 @@ struct ClipEscape : Component {
         r.PushScissor(0, 0, 128, 96);
         r.FillRect(-100, -100, 300, 300, Color::Green());
         r.PopScissor();
+    }
+};
+struct PersistentCapture : Component {
+    RenderContext* context = nullptr;
+    int cancellations = 0;
+    bool OnMouseDown(MouseButton b, float, float) override {
+        if (b != MouseButton::Left) return false;
+        SetMouseCapture(true);
+        context->SetMouseCaptured(true);
+        return true;
+    }
+    void OnMouseCancel(MouseButton) override {
+        ++cancellations;
+        SetMouseCapture(false);
+        context->SetMouseCaptured(false);
+    }
+};
+struct Lines : Component {
+    void OnDraw(Renderer2D& r) override {
+        r.DrawLine(10, 10, 40, 10, 6, Color::Red());
+        r.DrawLine(60, 10, 60, 40, 6, Color::Green());
+        r.DrawLine(10, 50, 40, 80, 6, Color::Blue());
+        r.DrawLine(90, 70, 90, 70, 8, Color::White());
+        r.DrawLine(90, 80, 110, 80, 0, Color::White());
     }
 };
 static void Pixel(const cv::Mat& frame, int x, int y, cv::Vec4b expected, int tolerance = 2) {
@@ -45,7 +70,44 @@ int main() {
         cfg.renderWidth = 128; cfg.renderHeight = 96;
         cfg.clearColor = Color::Transparent();
         Check(app.Init(cfg), "headless Init");
-        auto* root = app.GetRoot();
+        FrameRateCounter counter(3);
+        Check(counter.fps() == 0 && counter.avg_frame_time() == 0, "empty FPS counter");
+        for (int i = 0; i < 1000; ++i) counter.tick();
+        Check(std::isfinite(counter.fps()) && counter.fps() > 0 && counter.avg_frame_time() > 0, "finite FPS samples");
+        counter.set_window_size(1);
+        Check(counter.window_size() == 1 && std::isfinite(counter.fps()), "FPS window shrink");
+        counter.set_window_size(0); counter.tick();
+        Check(counter.fps() == 0 && counter.avg_frame_time() == 0, "zero FPS window");
+        counter.set_window_size(3); counter.reset(); counter.tick();
+        Check(counter.fps() == 0, "FPS reset and first tick");
+
+        app.SetRoot<Lines>(); app.RenderOffscreen();
+        auto frame = app.GetFrameBGRA();
+        Pixel(frame, 25, 7, {0, 0, 255, 255}); Pixel(frame, 25, 12, {0, 0, 255, 255});
+        Pixel(frame, 25, 6, {0, 0, 0, 0}); Pixel(frame, 25, 13, {0, 0, 0, 0});
+        Pixel(frame, 57, 25, {0, 255, 0, 255}); Pixel(frame, 63, 25, {0, 0, 0, 0});
+        Pixel(frame, 25, 65, {255, 0, 0, 255}); Pixel(frame, 25, 70, {0, 0, 0, 0});
+        Pixel(frame, 90, 70, {0, 0, 0, 0}); Pixel(frame, 100, 80, {0, 0, 0, 0});
+
+        auto* root = app.SetRoot<Component>();
+        auto addCapture = [&]() {
+            auto* capture = app.GetRoot()->AddChild<PersistentCapture>();
+            capture->SetRect(0, 0, 40, 40); capture->context = app.GetContext();
+            Click(app, 10, 10);
+            Check(capture->WantsMouseCapture() && app.GetContext()->IsMouseCaptured(), "capture persists after release");
+            return capture;
+        };
+        auto* capture = addCapture();
+        app.InjectMouseButton(MouseButton::Right, true); app.RunFrame();
+        app.InjectMouseButton(MouseButton::Right, false); app.RunFrame();
+        Check(capture->WantsMouseCapture(), "persistent capture survives unrelated release");
+        capture->SetVisible(false); app.RunFrame();
+        Check(!capture->WantsMouseCapture() && !app.GetContext()->IsMouseCaptured() && capture->cancellations == 1,
+              "hidden persistent capture cancels after all buttons released");
+        addCapture(); root->GetChildren().clear(); app.RunFrame();
+        Check(!app.GetContext()->IsMouseCaptured(), "deleted persistent capture releases system cursor");
+        addCapture(); root = app.SetRoot<Component>();
+        Check(!app.GetContext()->IsMouseCaptured(), "root replacement releases system cursor");
         auto* direct = root->AddChild<Fill>(); direct->SetRect(2, 2, 12, 12); direct->SetOpacity(0.5f);
         auto* canvas = root->AddChild<CanvasGroup>(); canvas->SetRect(30, 10, 50, 50); canvas->SetOpacity(0);
         auto* nested = canvas->AddChild<CanvasGroup>(); nested->SetRect(5, 5, 30, 30);
@@ -81,6 +143,14 @@ int main() {
         image->SetRect(0, 0, 40, 60); image->SetOnClick([&](ImageDisplay*, float, float) { ++imageClicks; });
         Click(app, 20, 3); Check(imageClicks == 0, "contain padding click");
         Click(app, 20, 20); Check(imageClicks == 1, "image click");
+        int completedBoxes = 0;
+        image->SetOnBoxDrawn([&](ImageDisplay*, float, float, float, float) { ++completedBoxes; });
+        app.InjectMousePos(15, 20); app.InjectMouseButton(MouseButton::Left, true); app.RunFrame();
+        app.InjectMouseButton(MouseButton::Right, true); app.RunFrame();
+        app.InjectMouseButton(MouseButton::Right, false); app.RunFrame();
+        Check(image->WantsMouseCapture(), "image capture survives unrelated button release");
+        app.InjectMousePos(35, 40); app.InjectMouseButton(MouseButton::Left, false); app.RunFrame();
+        Check(completedBoxes == 1 && !image->WantsMouseCapture(), "image drag releases capture and commits once");
         app.InjectMousePos(20, 20); app.InjectMouseButton(MouseButton::Left, true); app.RunFrame();
         int boxes = 0; image->SetOnBoxDrawn([&](ImageDisplay*, float, float, float, float) { ++boxes; });
         image->SetVisible(false); app.RunFrame(); app.InjectMouseButton(MouseButton::Left, false); app.RunFrame();
@@ -130,6 +200,11 @@ int main() {
         app.InjectMousePos(100, 90); app.RunFrame(); Check(slider->IsDragging() && slider->GetValue() == 1, "unrelated release preserves capture");
         app.InjectMousePos(30, 40); app.InjectMouseButton(MouseButton::Left, false); app.RunFrame();
         Check(!slider->IsDragging() && std::fabs(slider->GetValue() - 0.5f) < 0.001f, "release position updates slider");
+        app.InjectMousePos(10, 35); app.InjectMouseButton(MouseButton::Left, true); app.RunFrame();
+        app.InjectMouseButton(MouseButton::Right, true); app.RunFrame();
+        app.InjectMouseButton(MouseButton::Left, false); app.RunFrame();
+        Check(!slider->IsDragging() && !slider->WantsMouseCapture(), "primary release stops drag while another button held");
+        app.InjectMouseButton(MouseButton::Right, false); app.RunFrame();
         app.InjectMousePos(-2, -2); app.RunFrame(); Check(!app.GetInput().mouseInside, "headless mouse bounds");
 
         auto* box = root->AddChild<TextBox>(); box->SetRect(0, 55, 120, 30); box->SetText("A中B");
