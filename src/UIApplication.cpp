@@ -196,12 +196,17 @@ void UIApplication::RenderOffscreen() {
     cv::Mat rgba(m_cfg.renderHeight, m_cfg.renderWidth, CV_8UC4);
     glReadPixels(0, 0, m_cfg.renderWidth, m_cfg.renderHeight, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data);
     cv::flip(rgba, rgba, 0);
-    for (int y = 0; y < rgba.rows; ++y) {
-        auto* row = rgba.ptr<cv::Vec4b>(y);
-        for (int x = 0; x < rgba.cols; ++x) {
-            unsigned a = row[x][3];
-            for (int ch = 0; ch < 3; ++ch)
-                row[x][ch] = a ? (uint8_t)std::min(255u, (unsigned(row[x][ch]) * 255 + a / 2) / a) : 0;
+    // 去预乘（premultiplied → straight）：仅当画布背景半透明（clearColor.a < 1）时才需要。
+    // 不透明背景（clearColor.a >= 1）下，混合后 FBO 的 alpha 恒为 1，预乘==直通，
+    // 逐像素除法可完全跳过——这是高分辨率下最主要的 CPU 瓶颈（3840x2160 每帧 25M 次除法）。
+    if (m_cfg.clearColor.a < 1.0f) {
+        for (int y = 0; y < rgba.rows; ++y) {
+            auto* row = rgba.ptr<cv::Vec4b>(y);
+            for (int x = 0; x < rgba.cols; ++x) {
+                unsigned a = row[x][3];
+                for (int ch = 0; ch < 3; ++ch)
+                    row[x][ch] = a ? (uint8_t)std::min(255u, (unsigned(row[x][ch]) * 255 + a / 2) / a) : 0;
+            }
         }
     }
     cv::cvtColor(rgba, m_frameBGRA, cv::COLOR_RGBA2BGRA);
