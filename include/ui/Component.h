@@ -60,10 +60,18 @@ public:
     void SetRectRatio(float xr, float yr, float wr, float hr) {
         SetPositionRatio(xr, yr);
         SetSizeRatio(wr, hr);
+        SetPositionOffset(0, 0);
+        SetSizeOffset(0, 0);
     }
-    // 便捷：纯绝对像素设置（比例 = 0，向后兼容）
-    void SetPosition(float x, float y) { m_posXRatio = 0; m_posYRatio = 0; m_posXOffset = x; m_posYOffset = y; }
-    void SetSize(float w, float h) { m_wRatio = 0; m_hRatio = 0; m_wOffset = w; m_hOffset = h; }
+    // 便捷：纯绝对像素设置（比例 = 0，向后兼容，包括布局前查询）
+    void SetPosition(float x, float y) {
+        m_posXRatio = 0; m_posYRatio = 0;
+        m_localX = m_posXOffset = x; m_localY = m_posYOffset = y;
+    }
+    void SetSize(float w, float h) {
+        m_wRatio = 0; m_hRatio = 0;
+        m_width = m_wOffset = w; m_height = m_hOffset = h;
+    }
     void SetRect(float x, float y, float w, float h) { SetPosition(x, y); SetSize(w, h); }
     // 查询布局后计算出的实际像素位置 / 尺寸
     void GetPosition(float& x, float& y) const { x = m_localX; y = m_localY; }

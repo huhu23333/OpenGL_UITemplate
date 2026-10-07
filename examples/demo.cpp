@@ -19,9 +19,30 @@ using namespace ui;
 // 参考分辨率：demo 内所有绝对坐标均以此为基准，转换为"相对父组件尺寸的比例"（偏移 0）
 constexpr float REF_W = 1920.0f;
 constexpr float REF_H = 1080.0f;
-static void place(Component* c, float x, float y, float w, float h) {
-    c->SetRectRatio(x / REF_W, y / REF_H, w / REF_W, h / REF_H);
+static void place(Component* c, float x, float y, float w, float h,
+                  float parentW = REF_W, float parentH = REF_H) {
+    c->SetRectRatio(x / parentW, y / parentH, w / parentW, h / parentH);
 }
+
+// demo 的内容画布也按视口比例缩放，而不是只放大外框。
+struct RatioScrollView : ScrollView {
+    float contentHeightRatio = 1.0f;
+    bool scrollToEnd = false;
+    void OnLayoutSelf() override {
+        SetCanvasSize(m_width, m_height * contentHeightRatio);
+        if (scrollToEnd) {
+            SetScrollY(m_canvasH - m_height);
+            scrollToEnd = false;
+        }
+    }
+};
+
+struct RatioDropdown : Dropdown {
+    void OnLayoutSelf() override {
+        SetItemHeight(m_height * (32.0f / 36.0f));
+        Dropdown::OnLayoutSelf();
+    }
+};
 
 
 // 纯色矩形（用于演示透明叠加、颜色背景等）
@@ -206,29 +227,25 @@ int main(int argc, char** argv) {
     // ===== 日志栏（带边框、可滚动的文字显示）=====
     const float logLineH = 24.0f;
     const int maxLogLines = 200;
-    auto* logScroll = root->AddChild<ScrollView>();
+    auto* logScroll = root->AddChild<RatioScrollView>();
     place(logScroll, 1000, 470, 460, 550);
     logScroll->SetBorder(2.0f, {0.40f, 0.50f, 0.60f, 1.0f});
-    logScroll->SetCanvasSize(460.0f, 550.0f);
     std::vector<std::string> logLines;
     auto log = [&](const std::string& msg) {
         logLines.push_back(msg);
         while ((int)logLines.size() > maxLogLines) logLines.erase(logLines.begin());
         logScroll->GetChildren().clear();
+        float totalH = std::max(550.0f, (float)logLines.size() * logLineH);
         for (size_t i = 0; i < logLines.size(); ++i) {
             auto* line = logScroll->AddChild<Text>();
-            line->SetRect(8.0f, (float)i * logLineH, 444.0f, logLineH);
+            place(line, 8.0f, (float)i * logLineH, 444.0f, logLineH, 460.0f, totalH);
             line->SetText(logLines[i]);
             line->SetTextSupersample(4.0f);
             line->SetFontScale(0.4f);
             line->SetColor({0.85f, 0.90f, 0.95f, 1.0f});
         }
-        float totalH = (float)logLines.size() * logLineH;
-        if (totalH < 550.0f) totalH = 550.0f;
-        logScroll->SetCanvasSize(460.0f, totalH);
-        float maxScroll = totalH - 550.0f;
-        if (maxScroll < 0.0f) maxScroll = 0.0f;
-        logScroll->SetScrollY(maxScroll);
+        logScroll->contentHeightRatio = totalH / 550.0f;
+        logScroll->scrollToEnd = true;  // 等自身比例尺寸算完，再滚动到末尾。
     };
     log("demo started");
 
@@ -303,12 +320,12 @@ int main(int argc, char** argv) {
     dropLabel->SetColor(Color::White());
 
     // ===== 滚动菜单 =====
-    auto* scroll = root->AddChild<ScrollView>();
+    auto* scroll = root->AddChild<RatioScrollView>();
     place(scroll, 680, 90, 260, 320);
-    scroll->SetCanvasSize(260.0f, 900.0f);   // 内容高度 > 视口，可滚动
+    scroll->contentHeightRatio = 900.0f / 320.0f;   // 内容高度 > 视口，可滚动
     for (int i = 0; i < 20; ++i) {
         auto* item = scroll->AddChild<Button>();
-        item->SetRect(8.0f, (float)i * 44.0f, 244.0f, 40.0f);
+        place(item, 8.0f, (float)i * 44.0f, 244.0f, 40.0f, 260.0f, 900.0f);
         char buf[64];
         std::snprintf(buf, sizeof(buf), "Scroll item %02d", i);
         item->SetLabel(buf);
@@ -350,13 +367,13 @@ int main(int argc, char** argv) {
     place(mouseBox, 1000, 100, 460, 340);
     mouseBox->SetBorder(3.0f, {0.40f, 0.50f, 0.65f, 1.0f});
     auto* mouseSpeedLabel = mouseBox->AddChild<Text>();
-    mouseSpeedLabel->SetRect(16, 16, 428, 30);
+    place(mouseSpeedLabel, 16, 16, 428, 30, 460, 340);
     mouseSpeedLabel->SetTextSupersample(4.0f);
     mouseSpeedLabel->SetText("speed: 0 px/s");
     mouseSpeedLabel->SetFontScale(0.5f);
     mouseSpeedLabel->SetColor(Color::White());
     auto* mouseStatusLabel = mouseBox->AddChild<Text>();
-    mouseStatusLabel->SetRect(16, 52, 428, 24);
+    place(mouseStatusLabel, 16, 52, 428, 24, 460, 340);
     mouseStatusLabel->SetTextSupersample(4.0f);
     mouseStatusLabel->SetText("click to capture mouse (ESC to release)");
     mouseStatusLabel->SetFontScale(0.4f);
@@ -389,7 +406,7 @@ int main(int argc, char** argv) {
     bordered->SetBorder(3.0f, {1.0f, 0.6f, 0.2f, 1.0f});
 
     // 弹出菜单最后添加，避免后绘制的图像挡住选项 C/D 及其鼠标命中。
-    auto* dropdown = root->AddChild<Dropdown>();
+    auto* dropdown = root->AddChild<RatioDropdown>();
     place(dropdown, 40, 270, 220, 36);
     dropdown->SetTextSupersample(4.0f);
     dropdown->SetItems({"Option A", "Option B", "Option C", "Option D"});

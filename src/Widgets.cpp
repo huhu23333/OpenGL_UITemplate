@@ -36,26 +36,34 @@ struct TextMetrics {
 // 得到 ss 倍超采样的抗锯齿文字。
 Texture* GetTextTexture(Renderer2D& renderer, const std::string& text, float scale, int thickness, float ss) {
     if (!std::isfinite(ss) || ss <= 0.0f) ss = 1.0f;
+    if (!ValidTextSize(text, scale, thickness)) return nullptr;
     float rscale = scale * ss;  // 超采样栅格化字号
-    if (!ValidTextSize(text, rscale, thickness)) return nullptr;
+    double stroke = double(thickness) * ss;
+    if (!std::isfinite(stroke) || stroke > 32767) return nullptr;
+    int rthickness = std::max(1, (int)std::lround(stroke));
+    if (!ValidTextSize(text, rscale, rthickness)) return nullptr;
     TextKey key{text, scale, thickness, ss};
     auto& cache = renderer.TextCache();
     auto it = cache.find(key);
     if (it != cache.end()) return it->second.get();
 
     int baseline = 0;
-    cv::Size sz = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, rscale, thickness, &baseline);
+    cv::Size sz = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, scale, thickness, &baseline);
     if (sz.width <= 0 || sz.height <= 0) return nullptr;
     int pad = 2;
-    int w = sz.width + pad * 2;
-    int h = sz.height + baseline + pad * 2;
+    // 放大整个逻辑位图（含留白和基线），不能把高字号的独立度量拉伸回去：
+    // 后者会改变字形宽高比、起点和基线，使 TextBox 的逻辑光标错位。
+    double rw = std::ceil(double(sz.width + pad * 2) * ss);
+    double rh = std::ceil(double(sz.height + baseline + pad * 2) * ss);
     GLint maxSize = 0;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxSize);
-    if (w <= 0 || h <= 0 || w > maxSize || h > maxSize) return nullptr;
-
+    // 先检查浮点范围再转整数；面积上限也限制 CPU 临时位图的内存占用。
+    if (!std::isfinite(rw) || !std::isfinite(rh) || rw <= 0 || rh <= 0 ||
+        rw > maxSize || rh > maxSize || rw * rh > 16.0 * 1024 * 1024) return nullptr;
+    int w = (int)rw, h = (int)rh;
     cv::Mat mask(h, w, CV_8UC1, cv::Scalar(0));
-    cv::putText(mask, text, cv::Point(pad, h - pad - baseline),
-                cv::FONT_HERSHEY_SIMPLEX, rscale, cv::Scalar(255), thickness, cv::LINE_AA);
+    cv::putText(mask, text, cv::Point(cvRound(pad * ss), cvRound((pad + sz.height) * ss)),
+                cv::FONT_HERSHEY_SIMPLEX, rscale, cv::Scalar(255), rthickness, cv::LINE_AA);
     cv::Mat white(h, w, CV_8UC1, cv::Scalar(255)), img;
     cv::merge(std::vector<cv::Mat>{white, white, white, mask}, img);
 
