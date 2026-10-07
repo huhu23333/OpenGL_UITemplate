@@ -20,11 +20,13 @@
 - OpenGL ES 3.0（`glesv2`）、EGL（无头模式）
 - GLFW 3（`glfw3`）
 - OpenCV 4（`opencv4`）
+- FreeType 2（`freetype2`）、HarfBuzz（`harfbuzz`）、Fontconfig（`fontconfig`）——文本矢量渲染与中文字体发现
 
 Ubuntu/Debian 安装：
 
 ```bash
-sudo apt install cmake g++ libgles2-mesa-dev libegl1-mesa-dev libglfw3-dev libopencv-dev
+sudo apt install cmake g++ libgles2-mesa-dev libegl1-mesa-dev libglfw3-dev libopencv-dev \
+                 libfreetype6-dev libharfbuzz-dev libfontconfig1-dev
 ```
 
 ## 构建
@@ -167,6 +169,6 @@ examples/demo.cpp  应用实例
 
 ## 已知限制（模板级简化，可按需扩展）
 
-- 文本栅格化使用 OpenCV Hershey 字体（仅 ASCII），中文会显示为 `?`；可替换为 FreeType/stb_truetype。
+- 文本渲染使用 HarfBuzz + FreeType 矢量轮廓（通过 Fontconfig 发现字体，支持中文等任意 Unicode），不再用 OpenCV Hershey 位图。
 - 无头模式依赖 Linux EGL surfaceless；其他平台需自行适配（如 OSMesa）。
 - 下拉菜单收起不自动响应"点击外部"，需通过头部按钮切换。
