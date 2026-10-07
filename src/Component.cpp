@@ -9,9 +9,15 @@ Component::Component() = default;
 Component::~Component() = default;
 
 // ---------------------------------------------------------------------------
-// 布局：计算渲染空间绝对矩形 m_abs 与屏幕空间绝对矩形 m_screenAbs
+// 布局：根据"比例+偏移"计算实际像素位置/尺寸，并计算渲染/屏幕绝对矩形
 // ---------------------------------------------------------------------------
-void Component::Layout(const Vec2& renderOrigin, const Rect& renderClip, const Vec2& screenOrigin) {
+void Component::Layout(const Vec2& parentSize, const Vec2& renderOrigin, const Rect& renderClip, const Vec2& screenOrigin) {
+    // 实际像素 = 父尺寸 × 比例 + 绝对增减值
+    m_localX = parentSize.x * m_posXRatio + m_posXOffset;
+    m_localY = parentSize.y * m_posYRatio + m_posYOffset;
+    m_width  = parentSize.x * m_wRatio + m_wOffset;
+    m_height = parentSize.y * m_hRatio + m_hOffset;
+
     m_abs.x = renderOrigin.x + m_localX;
     m_abs.y = renderOrigin.y + m_localY;
     m_abs.w = m_width;
@@ -24,11 +30,14 @@ void Component::Layout(const Vec2& renderOrigin, const Rect& renderClip, const V
     m_screenClip = Rect(renderClip.x + screenOrigin.x - renderOrigin.x,
                         renderClip.y + screenOrigin.y - renderOrigin.y, renderClip.w, renderClip.h);
 
+    OnLayoutSelf();  // 子类更新依赖自身尺寸的状态（如虚拟画布尺寸）
+
+    Vec2 childParentSize = ChildLayoutSize();
     Vec2 childRenderOrigin = ChildRenderOrigin();
     Rect childClip = ChildClip(renderClip);
     Vec2 childScreenOrigin = ChildScreenOrigin();
     for (auto& c : m_children) {
-        c->Layout(childRenderOrigin, childClip, childScreenOrigin);
+        c->Layout(childParentSize, childRenderOrigin, childClip, childScreenOrigin);
     }
 }
 

@@ -148,7 +148,7 @@ void UIApplication::RunFrame() {
         Vec2 origin(0.0f, 0.0f);
         Rect full(0.0f, 0.0f, (float)m_cfg.renderWidth, (float)m_cfg.renderHeight);
         m_root->SetRect(0, 0, full.w, full.h);
-        m_root->Layout(origin, full, origin);
+        m_root->Layout(Vec2(full.w, full.h), origin, full, origin);
     }
     DispatchInput();
     RenderOffscreen();
@@ -164,7 +164,7 @@ void UIApplication::RenderOffscreen() {
     Rect full(0.0f, 0.0f, (float)m_cfg.renderWidth, (float)m_cfg.renderHeight);
     if (m_root) {
         m_root->SetRect(0, 0, full.w, full.h);
-        m_root->Layout(origin, full, origin);
+        m_root->Layout(Vec2(full.w, full.h), origin, full, origin);
     }
 
     GLint draw, read, viewport[4], scissor[4], alignment, rowLength, skipRows, skipPixels, buffer;
@@ -323,7 +323,7 @@ void UIApplication::DispatchInput() {
         Vec2 origin;
         Rect full(0, 0, (float)m_cfg.renderWidth, (float)m_cfg.renderHeight);
         m_root->SetRect(0, 0, full.w, full.h);
-        m_root->Layout(origin, full, origin);
+        m_root->Layout(Vec2(full.w, full.h), origin, full, origin);
         return m_root->HitTest(m_input.mouseX, m_input.mouseY);
     };
     auto updateHover = [&]() {

@@ -47,7 +47,7 @@ public:
     void SetCanvasBackground(const Color& c) { m_canvasBg = c; }
     const Color& GetCanvasBackground() const { return m_canvasBg; }
 
-    void Layout(const Vec2& renderOrigin, const Rect& renderClip, const Vec2& screenOrigin) override;
+    void OnLayoutSelf() override;
 
     // 确保 FBO 已分配（canvas 尺寸未知时延迟到首帧）
     void EnsureCanvas();
@@ -62,6 +62,8 @@ protected:
         return Rect(0.0f, 0.0f, m_canvasW, m_canvasH);
     }
     Vec2 SelfSize() const override { return {m_canvasW, m_canvasH}; }
+    // 子组件布局空间尺寸 = 虚拟画布尺寸
+    Vec2 ChildLayoutSize() const override { return {m_canvasW, m_canvasH}; }
 
     // 自身内容绘制到虚拟画布（默认填充画布背景色 + 边框）
     void OnDraw(Renderer2D& r) override;
@@ -156,8 +158,8 @@ protected:
     Rect ChildClip(const Rect& parentClip) const override;
     // 命中测试边界扩展到弹出层区域
     Rect HitBounds() const override;
-    // 每帧布局前同步子组件尺寸到自身尺寸
-    void Layout(const Vec2& renderOrigin, const Rect& renderClip, const Vec2& screenOrigin) override;
+    // 每帧布局中同步子组件尺寸到自身尺寸
+    void OnLayoutSelf() override;
 
     std::vector<std::string> m_items;
     int m_selected = -1;

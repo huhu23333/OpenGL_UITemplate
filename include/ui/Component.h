@@ -49,12 +49,25 @@ public:
     Component* GetChild(size_t i) const { return i < m_children.size() ? m_children[i].get() : nullptr; }
     size_t GetChildCount() const { return m_children.size(); }
 
-    // ---- 几何（相对父组件的像素位置，左上角原点，Y 向下）----
-    void SetPosition(float x, float y) { m_localX = x; m_localY = y; }
+    // ---- 几何（相对父组件尺寸的比例 + 绝对增减值，左上角原点，Y 向下）----
+    // 实际像素 = 父组件相应尺寸 × 比例 + 绝对增减值。
+    // 父组件尺寸变化时，比例部分自动缩放，绝对增减值部分保持不变。
+    void SetPositionRatio(float xr, float yr) { m_posXRatio = xr; m_posYRatio = yr; }
+    void SetPositionOffset(float x, float y) { m_posXOffset = x; m_posYOffset = y; }
+    void SetSizeRatio(float wr, float hr) { m_wRatio = wr; m_hRatio = hr; }
+    void SetSizeOffset(float w, float h) { m_wOffset = w; m_hOffset = h; }
+    // 便捷：位置与尺寸均按父组件尺寸的比例设置（绝对增减值 = 0）
+    void SetRectRatio(float xr, float yr, float wr, float hr) {
+        SetPositionRatio(xr, yr);
+        SetSizeRatio(wr, hr);
+    }
+    // 便捷：纯绝对像素设置（比例 = 0，向后兼容）
+    void SetPosition(float x, float y) { m_posXRatio = 0; m_posYRatio = 0; m_posXOffset = x; m_posYOffset = y; }
+    void SetSize(float w, float h) { m_wRatio = 0; m_hRatio = 0; m_wOffset = w; m_hOffset = h; }
+    void SetRect(float x, float y, float w, float h) { SetPosition(x, y); SetSize(w, h); }
+    // 查询布局后计算出的实际像素位置 / 尺寸
     void GetPosition(float& x, float& y) const { x = m_localX; y = m_localY; }
-    void SetSize(float w, float h) { m_width = w; m_height = h; }
     void GetSize(float& w, float& h) const { w = m_width; h = m_height; }
-    void SetRect(float x, float y, float w, float h) { m_localX = x; m_localY = y; m_width = w; m_height = h; }
 
     // 屏幕空间绝对矩形（输入/命中测试用），布局后有效
     const Rect& GetScreenRect() const { return m_screenAbs; }
@@ -104,10 +117,11 @@ public:
     float GetScrollY() const;
 
     // ======================= 内部：由 UIApplication 调用 =======================
-    // 布局：计算 m_abs（渲染空间）与 m_screenAbs（屏幕空间）。
+    // 布局：根据"比例+偏移"计算实际像素位置/尺寸，并算出 m_abs（渲染空间）
+    // 与 m_screenAbs（屏幕空间）。parentSize 为父组件提供的布局空间尺寸。
     // renderOrigin/renderClip：父组件渲染空间的坐标原点与裁剪矩形；
     // screenOrigin：父组件屏幕空间坐标原点。
-    virtual void Layout(const Vec2& renderOrigin, const Rect& renderClip, const Vec2& screenOrigin);
+    virtual void Layout(const Vec2& parentSize, const Vec2& renderOrigin, const Rect& renderClip, const Vec2& screenOrigin);
 
     // 递归渲染：自身 + 子组件（含 scissor 裁剪、自身透明度）。
     // 虚拟画布容器会重写此方法以重定向子组件到独立 FBO。
@@ -128,6 +142,10 @@ protected:
     virtual Vec2 ChildScreenOrigin() const { return {m_screenAbs.x, m_screenAbs.y}; }
     // 子组件裁剪矩形（默认 = 本组件渲染矩形 ∩ 父裁剪）
     virtual Rect ChildClip(const Rect& parentClip) const { return m_abs.Intersect(parentClip); }
+    // 子组件布局空间尺寸（默认 = 本组件自身宽高；虚拟画布容器返回画布尺寸）
+    virtual Vec2 ChildLayoutSize() const { return {m_width, m_height}; }
+    // 在布局中算完自身实际像素尺寸后、布局子组件前调用（子类可在此更新依赖自身尺寸的状态，如画布尺寸）
+    virtual void OnLayoutSelf() {}
     // 是否为虚拟画布容器（子组件渲染到独立 FBO，需重定向）
     virtual bool IsVirtualCanvas() const { return false; }
     // 自绘时使用的自身尺寸（虚拟画布容器返回画布尺寸）
@@ -153,6 +171,17 @@ protected:
     Component* m_parent = nullptr;
     std::vector<std::unique_ptr<Component>> m_children;
 
+    // 几何规格：比例（相对父组件尺寸）+ 绝对增减值
+    float m_posXRatio = 0.0f;
+    float m_posYRatio = 0.0f;
+    float m_posXOffset = 0.0f;
+    float m_posYOffset = 0.0f;
+    float m_wRatio = 0.0f;
+    float m_hRatio = 0.0f;
+    float m_wOffset = 0.0f;
+    float m_hOffset = 0.0f;
+
+    // 布局后计算出的实际像素值（= 父尺寸 × 比例 + 偏移）
     float m_localX = 0.0f;
     float m_localY = 0.0f;
     float m_width = 0.0f;

@@ -48,9 +48,8 @@ void CanvasGroup::ClampScroll() {
     if (m_scrollY > maxY) m_scrollY = maxY;
 }
 
-void CanvasGroup::Layout(const Vec2& renderOrigin, const Rect& renderClip, const Vec2& screenOrigin) {
+void CanvasGroup::OnLayoutSelf() {
     SetCanvasSize(m_requestedCanvasW, m_requestedCanvasH);
-    Component::Layout(renderOrigin, renderClip, screenOrigin);
 }
 
 void CanvasGroup::EnsureCanvas() {
@@ -293,8 +292,8 @@ Rect Dropdown::HitBounds() const {
     return Rect(m_screenAbs.x, m_screenAbs.y, m_width, totalH);
 }
 
-void Dropdown::Layout(const Vec2& renderOrigin, const Rect& renderClip, const Vec2& screenOrigin) {
-    // 同步子组件尺寸到自身尺寸
+void Dropdown::OnLayoutSelf() {
+    // 同步子组件尺寸到自身尺寸（此时 m_width/m_height 已由布局算出）
     m_headerH = std::max(0.0f, m_height);
     m_itemHeight = std::isfinite(m_itemHeight) ? std::max(0.0f, m_itemHeight) : 0.0f;
     if (m_headerButton) {
@@ -311,7 +310,6 @@ void Dropdown::Layout(const Vec2& renderOrigin, const Rect& renderClip, const Ve
             b->SetFontScale(m_fontScale);
         }
     }
-    Component::Layout(renderOrigin, renderClip, screenOrigin);
 }
 
 void Dropdown::Rebuild() {

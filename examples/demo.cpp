@@ -16,6 +16,14 @@
 
 using namespace ui;
 
+// 参考分辨率：demo 内所有绝对坐标均以此为基准，转换为"相对父组件尺寸的比例"（偏移 0）
+constexpr float REF_W = 1920.0f;
+constexpr float REF_H = 1080.0f;
+static void place(Component* c, float x, float y, float w, float h) {
+    c->SetRectRatio(x / REF_W, y / REF_H, w / REF_W, h / REF_H);
+}
+
+
 // 纯色矩形（用于演示透明叠加、颜色背景等）
 struct Fill : Component {
     Color color = Color::Red();
@@ -158,8 +166,8 @@ int main(int argc, char** argv) {
     }
 
     UIApplication::Config cfg;
-    cfg.renderWidth = 1920;
-    cfg.renderHeight = 1080;
+    cfg.renderWidth = 3840;
+    cfg.renderHeight = 2160;
     cfg.showWindow = !headless;
     cfg.windowWidth = 1280;
     cfg.windowHeight = 720;
@@ -177,7 +185,7 @@ int main(int argc, char** argv) {
 
     // 标题
     auto* title = root->AddChild<Text>();
-    title->SetRect(40, 30, 1200, 40);
+    place(title, 40, 30, 1200, 40);
     title->SetText("OpenGL UI Template - component tree demo");
     title->SetFontScale(1.0f);
     title->SetFontThickness(2);
@@ -186,7 +194,7 @@ int main(int argc, char** argv) {
     // ===== 帧率显示（右上角）=====
     FrameRateCounter frc(60);
     auto* fpsText = root->AddChild<Text>();
-    fpsText->SetRect(1720, 30, 170, 40);
+    place(fpsText, 1720, 30, 170, 40);
     fpsText->SetText("FPS: -");
     fpsText->SetFontScale(0.7f);
     fpsText->SetFontThickness(2);
@@ -197,7 +205,7 @@ int main(int argc, char** argv) {
     const float logLineH = 24.0f;
     const int maxLogLines = 200;
     auto* logScroll = root->AddChild<ScrollView>();
-    logScroll->SetRect(1000, 470, 460, 550);
+    place(logScroll, 1000, 470, 460, 550);
     logScroll->SetBorder(2.0f, {0.40f, 0.50f, 0.60f, 1.0f});
     logScroll->SetCanvasSize(460.0f, 550.0f);
     std::vector<std::string> logLines;
@@ -224,14 +232,14 @@ int main(int argc, char** argv) {
     // ===== 按钮 + 点击计数 =====
     int clickCount = 0;
     auto* btnLabel = root->AddChild<Text>();
-    btnLabel->SetRect(260, 90, 220, 48);
+    place(btnLabel, 260, 90, 220, 48);
     btnLabel->SetText("clicks: 0");
     btnLabel->SetFontScale(0.5f);
     btnLabel->SetAlignment(Text::HAlign::Left, Text::VAlign::Middle);
     btnLabel->SetColor(Color::White());
 
     auto* btn = root->AddChild<Button>();
-    btn->SetRect(40, 90, 200, 48);
+    place(btn, 40, 90, 200, 48);
     btn->SetLabel("Click Me");
     btn->SetFontScale(0.6f);
     btn->SetOnClick([&](Button*) {
@@ -246,14 +254,14 @@ int main(int argc, char** argv) {
     Text* translucent = nullptr;  // 稍后创建，滑条回调驱动其透明度
 
     auto* sliderLabel = root->AddChild<Text>();
-    sliderLabel->SetRect(360, 160, 200, 24);
+    place(sliderLabel, 360, 160, 200, 24);
     sliderLabel->SetText("opacity: 30%");
     sliderLabel->SetFontScale(0.5f);
     sliderLabel->SetAlignment(Text::HAlign::Left, Text::VAlign::Middle);
     sliderLabel->SetColor(Color::White());
 
     auto* slider = root->AddChild<Slider>();
-    slider->SetRect(40, 160, 300, 24);
+    place(slider, 40, 160, 300, 24);
     slider->SetRange(0.0f, 100.0f);
     slider->SetValue(30.0f);
     slider->SetOnChange([&](Slider*, float v) {
@@ -271,7 +279,7 @@ int main(int argc, char** argv) {
 
     // ===== 文本框 =====
     auto* textBox = root->AddChild<TextBox>();
-    textBox->SetRect(40, 210, 300, 36);
+    place(textBox, 40, 210, 300, 36);
     textBox->SetPlaceholder("type here...");
     textBox->SetFontScale(0.5f);
     textBox->SetOnSubmit([&](TextBox* tb) {
@@ -281,14 +289,14 @@ int main(int argc, char** argv) {
 
     // ===== 下拉菜单 =====
     auto* dropLabel = root->AddChild<Text>();
-    dropLabel->SetRect(280, 270, 320, 36);
+    place(dropLabel, 280, 270, 320, 36);
     dropLabel->SetFontScale(0.5f);
     dropLabel->SetAlignment(Text::HAlign::Left, Text::VAlign::Middle);
     dropLabel->SetColor(Color::White());
 
     // ===== 滚动菜单 =====
     auto* scroll = root->AddChild<ScrollView>();
-    scroll->SetRect(680, 90, 260, 320);
+    place(scroll, 680, 90, 260, 320);
     scroll->SetCanvasSize(260.0f, 900.0f);   // 内容高度 > 视口，可滚动
     for (int i = 0; i < 20; ++i) {
         auto* item = scroll->AddChild<Button>();
@@ -306,13 +314,13 @@ int main(int argc, char** argv) {
 
     // ===== 图像显示（yolo 框选）=====
     auto* boxLabel = root->AddChild<Text>();
-    boxLabel->SetRect(40, 680, 640, 26);
+    place(boxLabel, 40, 680, 640, 26);
     boxLabel->SetFontScale(0.5f);
     boxLabel->SetColor({0.3f, 1.0f, 0.6f, 1.0f});
     boxLabel->SetText("drag inside image to draw a box (yolo normalized output)");
 
     auto* imageDisp = root->AddChild<ImageDisplay>();
-    imageDisp->SetRect(40, 360, 400, 300);
+    place(imageDisp, 40, 360, 400, 300);
     imageDisp->SetImage(MakeTestImage());
     imageDisp->SetOnBoxDrawn([&](ImageDisplay*, float cx, float cy, float w, float h) {
         char buf[128];
@@ -329,7 +337,7 @@ int main(int argc, char** argv) {
 
     // ===== 鼠标捕获框（点击捕获，ESC 释放，显示速度 + 箭头）=====
     auto* mouseBox = root->AddChild<MouseCaptureBox>();
-    mouseBox->SetRect(1000, 100, 460, 340);
+    place(mouseBox, 1000, 100, 460, 340);
     mouseBox->SetBorder(3.0f, {0.40f, 0.50f, 0.65f, 1.0f});
     auto* mouseSpeedLabel = mouseBox->AddChild<Text>();
     mouseSpeedLabel->SetRect(16, 16, 428, 30);
@@ -350,11 +358,11 @@ int main(int argc, char** argv) {
 
     // ===== 透明度示例：半透明矩形半叠在不透明矩形上（透明度由滑条控制）=====
     auto* opaqueRect = root->AddChild<Fill>();
-    opaqueRect->SetRect(40, 720, 170, 110);
+    place(opaqueRect, 40, 720, 170, 110);
     opaqueRect->color = {0.90f, 0.45f, 0.15f, 1.0f};  // 橙色（不透明）
 
     translucent = root->AddChild<Text>();
-    translucent->SetRect(125, 775, 170, 110);        // 与橙色矩形错开半宽半高，形成半叠
+    place(translucent, 125, 775, 170, 110);        // 与橙色矩形错开半宽半高，形成半叠
     translucent->SetText("opacity 30%");
     translucent->SetFontScale(0.45f);
     translucent->SetFontThickness(2);
@@ -364,12 +372,12 @@ int main(int argc, char** argv) {
 
     // ===== 边框示例（纯 Component，默认绘制边框）=====
     auto* bordered = root->AddChild<Component>();
-    bordered->SetRect(340, 720, 160, 60);
+    place(bordered, 340, 720, 160, 60);
     bordered->SetBorder(3.0f, {1.0f, 0.6f, 0.2f, 1.0f});
 
     // 弹出菜单最后添加，避免后绘制的图像挡住选项 C/D 及其鼠标命中。
     auto* dropdown = root->AddChild<Dropdown>();
-    dropdown->SetRect(40, 270, 220, 36);
+    place(dropdown, 40, 270, 220, 36);
     dropdown->SetItems({"Option A", "Option B", "Option C", "Option D"});
     dropdown->SetSelectedIndex(0);
     dropLabel->SetText("selected: Option A");
@@ -381,8 +389,11 @@ int main(int argc, char** argv) {
     app.SetRoot(std::move(root));
 
     if (headless) {
-        // 注入一次点击，验证交互，然后离屏渲染并保存图像
-        app.InjectMousePos(140.0f, 114.0f);      // 按钮中心
+        // 注入一次点击，验证交互，然后离屏渲染并保存图像。
+        // 先跑一帧完成布局，再按按钮的实际屏幕中心注入，避免硬编码坐标依赖画布分辨率。
+        app.RunFrame();
+        Rect br = btn->GetScreenRect();
+        app.InjectMousePos(br.x + br.w * 0.5f, br.y + br.h * 0.5f);
         app.InjectMouseButton(MouseButton::Left, true);
         app.RunFrame();
         app.InjectMouseButton(MouseButton::Left, false);
