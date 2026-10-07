@@ -299,6 +299,7 @@ void Dropdown::OnLayoutSelf() {
     if (m_headerButton) {
         m_headerButton->SetSize(m_width, m_headerH);
         m_headerButton->SetFontScale(m_fontScale);
+        m_headerButton->SetTextSupersample(m_textSS);
     }
     if (m_popup) {
         float popupH = (float)m_items.size() * m_itemHeight;
@@ -308,6 +309,7 @@ void Dropdown::OnLayoutSelf() {
             auto* b = static_cast<Button*>(m_popup->GetChild(i));
             b->SetRect(0, (float)i * m_itemHeight, m_width, m_itemHeight);
             b->SetFontScale(m_fontScale);
+            b->SetTextSupersample(m_textSS);
         }
     }
 }

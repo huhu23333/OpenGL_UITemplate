@@ -25,6 +25,8 @@ public:
     const std::string& GetLabel() const { return m_label; }
     void SetFontScale(float s) { m_fontScale = s; }
     void SetFontThickness(int t) { m_fontThickness = t; }
+    // 文字渲染细化倍数（超采样）：以 scale*ss 栅格化再缩回逻辑尺寸，减弱文字模糊
+    void SetTextSupersample(float ss) { m_textSS = ss > 0.0f ? ss : 1.0f; }
 
     void SetColors(const Color& normal, const Color& hover, const Color& pressed);
     void SetLabelColor(const Color& c) { m_labelColor = c; }
@@ -44,6 +46,7 @@ protected:
     std::string m_label;
     float m_fontScale = 0.5f;
     int   m_fontThickness = 1;
+    float m_textSS = 1.0f;
     Color m_colorNormal = {0.25f, 0.28f, 0.36f, 1.0f};
     Color m_colorHover  = {0.32f, 0.38f, 0.48f, 1.0f};
     Color m_colorPressed = {0.15f, 0.18f, 0.24f, 1.0f};
@@ -108,6 +111,8 @@ public:
     const std::string& GetText() const { return m_text; }
     void SetFontScale(float s) { m_fontScale = s; }
     void SetFontThickness(int t) { m_fontThickness = t; }
+    // 文字渲染细化倍数（超采样）：以 scale*ss 栅格化再缩回逻辑尺寸，减弱文字模糊
+    void SetTextSupersample(float ss) { m_textSS = ss > 0.0f ? ss : 1.0f; }
     void SetColor(const Color& c) { m_color = c; }
     void SetAlignment(HAlign h, VAlign v) { m_halign = h; m_valign = v; }
     // 设置背景色（a>0 时先填充背景）
@@ -119,6 +124,7 @@ protected:
     std::string m_text;
     float m_fontScale = 0.5f;
     int   m_fontThickness = 1;
+    float m_textSS = 1.0f;
     Color m_color = Color::White();
     Color m_background = Color::Transparent();
     HAlign m_halign = HAlign::Left;
@@ -140,6 +146,8 @@ public:
     void SetPlaceholder(const std::string& p) { m_placeholder = p; }
     void SetFontScale(float s) { m_fontScale = s; }
     void SetFontThickness(int t) { m_fontThickness = t; }
+    // 文字渲染细化倍数（超采样）：以 scale*ss 栅格化再缩回逻辑尺寸，减弱文字模糊
+    void SetTextSupersample(float ss) { m_textSS = ss > 0.0f ? ss : 1.0f; }
     void SetTextColor(const Color& c) { m_textColor = c; }
     void SetPlaceholderColor(const Color& c) { m_placeholderColor = c; }
     void SetBackgroundColor(const Color& c) { m_bgColor = c; }
@@ -168,6 +176,7 @@ protected:
     std::string m_placeholder;
     float m_fontScale = 0.5f;
     int   m_fontThickness = 1;
+    float m_textSS = 1.0f;
     Color m_textColor = Color::White();
     Color m_placeholderColor = {0.5f, 0.5f, 0.5f, 1.0f};
     Color m_bgColor = {0.10f, 0.12f, 0.16f, 1.0f};

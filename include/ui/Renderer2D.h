@@ -78,7 +78,7 @@ public:
     // 强制提交当前批次（切换 FBO 前调用）
     void Flush();
 
-    using TextCacheMap = std::map<std::tuple<std::string, float, int>, std::unique_ptr<Texture>>;
+    using TextCacheMap = std::map<std::tuple<std::string, float, int, float>, std::unique_ptr<Texture>>;
     TextCacheMap& TextCache() { return m_textCache; }
 
     int ViewportWidth() const { return m_vpW; }

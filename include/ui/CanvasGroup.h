@@ -152,6 +152,8 @@ public:
     void SetColors(const Color& normal, const Color& hover, const Color& pressed);
     void SetItemHeight(float h) { m_itemHeight = h; }
     void SetFontScale(float s) { m_fontScale = s; }
+    // 文字渲染细化倍数（超采样），会传播到头部按钮与选项
+    void SetTextSupersample(float ss) { m_textSS = ss > 0.0f ? ss : 1.0f; }
 
 protected:
     // 允许子组件（弹出层）绘制在头部矩形之外（下方区域）
@@ -168,6 +170,7 @@ protected:
     float m_headerH = 36.0f;
     float m_itemHeight = 32.0f;
     float m_fontScale = 0.5f;
+    float m_textSS = 1.0f;
     Color m_colorNormal = {0.25f, 0.28f, 0.36f, 1.0f};
     Color m_colorHover = {0.32f, 0.38f, 0.48f, 1.0f};
     Color m_colorPressed = {0.15f, 0.18f, 0.24f, 1.0f};

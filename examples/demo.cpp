@@ -49,7 +49,7 @@ struct MouseCaptureBox : Component {
         float cx = s.x * 0.5f;
         float cy = s.y * 0.5f;
         float maxLen = std::min(s.x, s.y) * 0.38f;
-        float t = speed / 1500.0f;             // 归一化（1500 px/s 视为满长）
+        float t = speed / 6000.0f;             // 归一化（6000 px/s 视为满长，避免轻微移动就到限位）
         if (t > 1.0f) t = 1.0f;
         float len = t * maxLen;
         r.FillRect(cx - 3.0f, cy - 3.0f, 6.0f, 6.0f, {1.0f, 1.0f, 1.0f, 1.0f});
@@ -186,6 +186,7 @@ int main(int argc, char** argv) {
     // 标题
     auto* title = root->AddChild<Text>();
     place(title, 40, 30, 1200, 40);
+    title->SetTextSupersample(4.0f);
     title->SetText("OpenGL UI Template - component tree demo");
     title->SetFontScale(1.0f);
     title->SetFontThickness(2);
@@ -195,6 +196,7 @@ int main(int argc, char** argv) {
     FrameRateCounter frc(60);
     auto* fpsText = root->AddChild<Text>();
     place(fpsText, 1720, 30, 170, 40);
+    fpsText->SetTextSupersample(4.0f);
     fpsText->SetText("FPS: -");
     fpsText->SetFontScale(0.7f);
     fpsText->SetFontThickness(2);
@@ -217,6 +219,7 @@ int main(int argc, char** argv) {
             auto* line = logScroll->AddChild<Text>();
             line->SetRect(8.0f, (float)i * logLineH, 444.0f, logLineH);
             line->SetText(logLines[i]);
+            line->SetTextSupersample(4.0f);
             line->SetFontScale(0.4f);
             line->SetColor({0.85f, 0.90f, 0.95f, 1.0f});
         }
@@ -233,6 +236,7 @@ int main(int argc, char** argv) {
     int clickCount = 0;
     auto* btnLabel = root->AddChild<Text>();
     place(btnLabel, 260, 90, 220, 48);
+    btnLabel->SetTextSupersample(4.0f);
     btnLabel->SetText("clicks: 0");
     btnLabel->SetFontScale(0.5f);
     btnLabel->SetAlignment(Text::HAlign::Left, Text::VAlign::Middle);
@@ -240,6 +244,7 @@ int main(int argc, char** argv) {
 
     auto* btn = root->AddChild<Button>();
     place(btn, 40, 90, 200, 48);
+    btn->SetTextSupersample(4.0f);
     btn->SetLabel("Click Me");
     btn->SetFontScale(0.6f);
     btn->SetOnClick([&](Button*) {
@@ -255,6 +260,7 @@ int main(int argc, char** argv) {
 
     auto* sliderLabel = root->AddChild<Text>();
     place(sliderLabel, 360, 160, 200, 24);
+    sliderLabel->SetTextSupersample(4.0f);
     sliderLabel->SetText("opacity: 30%");
     sliderLabel->SetFontScale(0.5f);
     sliderLabel->SetAlignment(Text::HAlign::Left, Text::VAlign::Middle);
@@ -280,6 +286,7 @@ int main(int argc, char** argv) {
     // ===== 文本框 =====
     auto* textBox = root->AddChild<TextBox>();
     place(textBox, 40, 210, 300, 36);
+    textBox->SetTextSupersample(4.0f);
     textBox->SetPlaceholder("type here...");
     textBox->SetFontScale(0.5f);
     textBox->SetOnSubmit([&](TextBox* tb) {
@@ -290,6 +297,7 @@ int main(int argc, char** argv) {
     // ===== 下拉菜单 =====
     auto* dropLabel = root->AddChild<Text>();
     place(dropLabel, 280, 270, 320, 36);
+    dropLabel->SetTextSupersample(4.0f);
     dropLabel->SetFontScale(0.5f);
     dropLabel->SetAlignment(Text::HAlign::Left, Text::VAlign::Middle);
     dropLabel->SetColor(Color::White());
@@ -304,6 +312,7 @@ int main(int argc, char** argv) {
         char buf[64];
         std::snprintf(buf, sizeof(buf), "Scroll item %02d", i);
         item->SetLabel(buf);
+        item->SetTextSupersample(4.0f);
         item->SetFontScale(0.5f);
         item->SetOnClick([&, i](Button*) {
             char b2[64];
@@ -315,6 +324,7 @@ int main(int argc, char** argv) {
     // ===== 图像显示（yolo 框选）=====
     auto* boxLabel = root->AddChild<Text>();
     place(boxLabel, 40, 680, 640, 26);
+    boxLabel->SetTextSupersample(4.0f);
     boxLabel->SetFontScale(0.5f);
     boxLabel->SetColor({0.3f, 1.0f, 0.6f, 1.0f});
     boxLabel->SetText("drag inside image to draw a box (yolo normalized output)");
@@ -341,11 +351,13 @@ int main(int argc, char** argv) {
     mouseBox->SetBorder(3.0f, {0.40f, 0.50f, 0.65f, 1.0f});
     auto* mouseSpeedLabel = mouseBox->AddChild<Text>();
     mouseSpeedLabel->SetRect(16, 16, 428, 30);
+    mouseSpeedLabel->SetTextSupersample(4.0f);
     mouseSpeedLabel->SetText("speed: 0 px/s");
     mouseSpeedLabel->SetFontScale(0.5f);
     mouseSpeedLabel->SetColor(Color::White());
     auto* mouseStatusLabel = mouseBox->AddChild<Text>();
     mouseStatusLabel->SetRect(16, 52, 428, 24);
+    mouseStatusLabel->SetTextSupersample(4.0f);
     mouseStatusLabel->SetText("click to capture mouse (ESC to release)");
     mouseStatusLabel->SetFontScale(0.4f);
     mouseStatusLabel->SetColor({0.65f, 0.75f, 0.85f, 1.0f});
@@ -363,6 +375,7 @@ int main(int argc, char** argv) {
 
     translucent = root->AddChild<Text>();
     place(translucent, 125, 775, 170, 110);        // 与橙色矩形错开半宽半高，形成半叠
+    translucent->SetTextSupersample(4.0f);
     translucent->SetText("opacity 30%");
     translucent->SetFontScale(0.45f);
     translucent->SetFontThickness(2);
@@ -378,6 +391,7 @@ int main(int argc, char** argv) {
     // 弹出菜单最后添加，避免后绘制的图像挡住选项 C/D 及其鼠标命中。
     auto* dropdown = root->AddChild<Dropdown>();
     place(dropdown, 40, 270, 220, 36);
+    dropdown->SetTextSupersample(4.0f);
     dropdown->SetItems({"Option A", "Option B", "Option C", "Option D"});
     dropdown->SetSelectedIndex(0);
     dropLabel->SetText("selected: Option A");

@@ -18,7 +18,7 @@ namespace ui {
 // ===========================================================================
 namespace {
 
-using TextKey = std::tuple<std::string, float, int>;
+using TextKey = std::tuple<std::string, float, int, float>;  // (text, scale, thickness, supersample)
 
 bool ValidTextSize(const std::string& text, float scale, int thickness) {
     // Hershey 栅格器使用 16 位小数；先避免固定点/文本度量整数溢出。
@@ -32,15 +32,19 @@ struct TextMetrics {
     float h = 0.0f;
 };
 
-Texture* GetTextTexture(Renderer2D& renderer, const std::string& text, float scale, int thickness) {
-    if (!ValidTextSize(text, scale, thickness)) return nullptr;
-    TextKey key{text, scale, thickness};
+// ss 为文字渲染细化倍数（超采样）：以 scale*ss 的字号栅格化，绘制时缩回 scale 的逻辑尺寸，
+// 得到 ss 倍超采样的抗锯齿文字。
+Texture* GetTextTexture(Renderer2D& renderer, const std::string& text, float scale, int thickness, float ss) {
+    if (!std::isfinite(ss) || ss <= 0.0f) ss = 1.0f;
+    float rscale = scale * ss;  // 超采样栅格化字号
+    if (!ValidTextSize(text, rscale, thickness)) return nullptr;
+    TextKey key{text, scale, thickness, ss};
     auto& cache = renderer.TextCache();
     auto it = cache.find(key);
     if (it != cache.end()) return it->second.get();
 
     int baseline = 0;
-    cv::Size sz = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, scale, thickness, &baseline);
+    cv::Size sz = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, rscale, thickness, &baseline);
     if (sz.width <= 0 || sz.height <= 0) return nullptr;
     int pad = 2;
     int w = sz.width + pad * 2;
@@ -51,7 +55,7 @@ Texture* GetTextTexture(Renderer2D& renderer, const std::string& text, float sca
 
     cv::Mat mask(h, w, CV_8UC1, cv::Scalar(0));
     cv::putText(mask, text, cv::Point(pad, h - pad - baseline),
-                cv::FONT_HERSHEY_SIMPLEX, scale, cv::Scalar(255), thickness, cv::LINE_AA);
+                cv::FONT_HERSHEY_SIMPLEX, rscale, cv::Scalar(255), thickness, cv::LINE_AA);
     cv::Mat white(h, w, CV_8UC1, cv::Scalar(255)), img;
     cv::merge(std::vector<cv::Mat>{white, white, white, mask}, img);
 
@@ -99,7 +103,7 @@ void Button::OnDraw(Renderer2D& r) {
     Component::OnDraw(r);  // 边框
 
     if (!m_label.empty()) {
-        Texture* tex = GetTextTexture(r, m_label, m_fontScale, m_fontThickness);
+        Texture* tex = GetTextTexture(r, m_label, m_fontScale, m_fontThickness, m_textSS);
         if (tex) {
             TextMetrics m = MeasureText(m_label, m_fontScale, m_fontThickness);
             r.DrawTexture(tex, (s.x - m.w) * 0.5f, (s.y - m.h) * 0.5f, m.w, m.h, m_labelColor);
@@ -213,7 +217,7 @@ void Text::OnDraw(Renderer2D& r) {
     Component::OnDraw(r);
 
     if (m_text.empty()) return;
-    Texture* tex = GetTextTexture(r, m_text, m_fontScale, m_fontThickness);
+    Texture* tex = GetTextTexture(r, m_text, m_fontScale, m_fontThickness, m_textSS);
     if (!tex) return;
     TextMetrics m = MeasureText(m_text, m_fontScale, m_fontThickness);
 
@@ -256,7 +260,7 @@ void TextBox::OnDraw(Renderer2D& r) {
 
     float pad = 4.0f;
     if (!shown.empty()) {
-        Texture* tex = GetTextTexture(r, shown, m_fontScale, m_fontThickness);
+        Texture* tex = GetTextTexture(r, shown, m_fontScale, m_fontThickness, m_textSS);
         if (tex) {
             TextMetrics m = MeasureText(shown, m_fontScale, m_fontThickness);
             r.DrawTexture(tex, pad, (s.y - m.h) * 0.5f, m.w, m.h, col);
