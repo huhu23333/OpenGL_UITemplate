@@ -209,8 +209,8 @@ int main(int argc, char** argv) {
     place(title, 40, 30, 1200, 40);
     title->SetTextSupersample(4.0f);
     title->SetText("OpenGL UI Template - component tree demo");
-    title->SetFontScale(1.0f);
-    title->SetFontThickness(2);
+    title->SetFontScale(2.0f);
+    title->SetFontThickness(4);
     title->SetColor(Color::White());
 
     // ===== 帧率显示（右上角）=====
@@ -219,8 +219,8 @@ int main(int argc, char** argv) {
     place(fpsText, 1720, 30, 170, 40);
     fpsText->SetTextSupersample(4.0f);
     fpsText->SetText("FPS: -");
-    fpsText->SetFontScale(0.7f);
-    fpsText->SetFontThickness(2);
+    fpsText->SetFontScale(1.4f);
+    fpsText->SetFontThickness(4);
     fpsText->SetAlignment(Text::HAlign::Right, Text::VAlign::Middle);
     fpsText->SetColor({0.3f, 1.0f, 0.5f, 1.0f});
 
@@ -241,7 +241,7 @@ int main(int argc, char** argv) {
             place(line, 8.0f, (float)i * logLineH, 444.0f, logLineH, 460.0f, totalH);
             line->SetText(logLines[i]);
             line->SetTextSupersample(4.0f);
-            line->SetFontScale(0.4f);
+            line->SetFontScale(0.8f);
             line->SetColor({0.85f, 0.90f, 0.95f, 1.0f});
         }
         logScroll->contentHeightRatio = totalH / 550.0f;
@@ -255,7 +255,7 @@ int main(int argc, char** argv) {
     place(btnLabel, 260, 90, 220, 48);
     btnLabel->SetTextSupersample(4.0f);
     btnLabel->SetText("clicks: 0");
-    btnLabel->SetFontScale(0.5f);
+    btnLabel->SetFontScale(1.0f);
     btnLabel->SetAlignment(Text::HAlign::Left, Text::VAlign::Middle);
     btnLabel->SetColor(Color::White());
 
@@ -263,7 +263,7 @@ int main(int argc, char** argv) {
     place(btn, 40, 90, 200, 48);
     btn->SetTextSupersample(4.0f);
     btn->SetLabel("Click Me");
-    btn->SetFontScale(0.6f);
+    btn->SetFontScale(1.2f);
     btn->SetOnClick([&](Button*) {
         ++clickCount;
         char buf[64];
@@ -279,7 +279,7 @@ int main(int argc, char** argv) {
     place(sliderLabel, 360, 160, 200, 24);
     sliderLabel->SetTextSupersample(4.0f);
     sliderLabel->SetText("opacity: 30%");
-    sliderLabel->SetFontScale(0.5f);
+    sliderLabel->SetFontScale(1.0f);
     sliderLabel->SetAlignment(Text::HAlign::Left, Text::VAlign::Middle);
     sliderLabel->SetColor(Color::White());
 
@@ -305,7 +305,7 @@ int main(int argc, char** argv) {
     place(textBox, 40, 210, 300, 36);
     textBox->SetTextSupersample(4.0f);
     textBox->SetPlaceholder("type here...");
-    textBox->SetFontScale(0.5f);
+    textBox->SetFontScale(1.0f);
     textBox->SetOnSubmit([&](TextBox* tb) {
         std::printf("[demo] textbox submit: \"%s\"\n", tb->GetText().c_str());
         log("textbox submit: \"" + tb->GetText() + "\"");
@@ -315,7 +315,7 @@ int main(int argc, char** argv) {
     auto* dropLabel = root->AddChild<Text>();
     place(dropLabel, 280, 270, 320, 36);
     dropLabel->SetTextSupersample(4.0f);
-    dropLabel->SetFontScale(0.5f);
+    dropLabel->SetFontScale(1.0f);
     dropLabel->SetAlignment(Text::HAlign::Left, Text::VAlign::Middle);
     dropLabel->SetColor(Color::White());
 
@@ -330,7 +330,7 @@ int main(int argc, char** argv) {
         std::snprintf(buf, sizeof(buf), "Scroll item %02d", i);
         item->SetLabel(buf);
         item->SetTextSupersample(4.0f);
-        item->SetFontScale(0.5f);
+        item->SetFontScale(1.0f);
         item->SetOnClick([&, i](Button*) {
             char b2[64];
             std::snprintf(b2, sizeof(b2), "scroll item %02d clicked", i);
@@ -342,7 +342,7 @@ int main(int argc, char** argv) {
     auto* boxLabel = root->AddChild<Text>();
     place(boxLabel, 40, 680, 640, 26);
     boxLabel->SetTextSupersample(4.0f);
-    boxLabel->SetFontScale(0.5f);
+    boxLabel->SetFontScale(1.0f);
     boxLabel->SetColor({0.3f, 1.0f, 0.6f, 1.0f});
     boxLabel->SetText("drag inside image to draw a box (yolo normalized output)");
 
@@ -370,13 +370,13 @@ int main(int argc, char** argv) {
     place(mouseSpeedLabel, 16, 16, 428, 30, 460, 340);
     mouseSpeedLabel->SetTextSupersample(4.0f);
     mouseSpeedLabel->SetText("speed: 0 px/s");
-    mouseSpeedLabel->SetFontScale(0.5f);
+    mouseSpeedLabel->SetFontScale(1.0f);
     mouseSpeedLabel->SetColor(Color::White());
     auto* mouseStatusLabel = mouseBox->AddChild<Text>();
     place(mouseStatusLabel, 16, 52, 428, 24, 460, 340);
     mouseStatusLabel->SetTextSupersample(4.0f);
     mouseStatusLabel->SetText("click to capture mouse (ESC to release)");
-    mouseStatusLabel->SetFontScale(0.4f);
+    mouseStatusLabel->SetFontScale(0.8f);
     mouseStatusLabel->SetColor({0.65f, 0.75f, 0.85f, 1.0f});
     mouseBox->speedLabel = mouseSpeedLabel;
     mouseBox->statusLabel = mouseStatusLabel;
@@ -394,8 +394,8 @@ int main(int argc, char** argv) {
     place(translucent, 125, 775, 170, 110);        // 与橙色矩形错开半宽半高，形成半叠
     translucent->SetTextSupersample(4.0f);
     translucent->SetText("opacity 30%");
-    translucent->SetFontScale(0.45f);
-    translucent->SetFontThickness(2);
+    translucent->SetFontScale(0.9f);
+    translucent->SetFontThickness(4);
     translucent->SetAlignment(Text::HAlign::Center, Text::VAlign::Middle);
     translucent->SetBackground({0.2f, 0.45f, 0.85f, 1.0f});  // 蓝色
     translucent->SetOpacity(0.3f);
@@ -409,6 +409,7 @@ int main(int argc, char** argv) {
     auto* dropdown = root->AddChild<RatioDropdown>();
     place(dropdown, 40, 270, 220, 36);
     dropdown->SetTextSupersample(4.0f);
+    dropdown->SetFontScale(1.0f);
     dropdown->SetItems({"Option A", "Option B", "Option C", "Option D"});
     dropdown->SetSelectedIndex(0);
     dropLabel->SetText("selected: Option A");
