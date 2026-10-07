@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cmath>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,6 +29,8 @@ struct MouseCaptureBox : Component {
     float angle = 0.0f;       // 移动方向（弧度）
     Text* speedLabel = nullptr;
     Text* statusLabel = nullptr;
+    // 系统级鼠标捕获回调（隐藏光标并锁定到窗口），由 demo 绑定到 RenderContext
+    std::function<void(bool)> onSystemCapture;
 
     void OnDraw(Renderer2D& r) override {
         Vec2 s = SelfSize();
@@ -59,6 +62,7 @@ struct MouseCaptureBox : Component {
         if (b != MouseButton::Left) return false;
         captured = true;
         SetMouseCapture(true);
+        if (onSystemCapture) onSystemCapture(true);  // 真正隐藏光标并锁定窗口
         const InputState* in = GetInput();
         lastX = in->mouseX;
         lastY = in->mouseY;
@@ -71,16 +75,26 @@ struct MouseCaptureBox : Component {
     // 捕获框可聚焦：点击捕获后成为键盘焦点，从而接收 ESC 按键释放
     bool IsFocusable() const override { return true; }
 
+    void Release() {
+        captured = false;
+        SetMouseCapture(false);
+        if (onSystemCapture) onSystemCapture(false);
+        speed = 0.0f;
+        if (statusLabel) statusLabel->SetText("click to capture mouse (ESC to release)");
+        if (speedLabel) speedLabel->SetText("speed: 0 px/s");
+    }
+
     bool OnKeyDown(int key) override {
         if (key == KEY_ESCAPE && captured) {
-            captured = false;
-            SetMouseCapture(false);
-            speed = 0.0f;
-            if (statusLabel) statusLabel->SetText("click to capture mouse (ESC to release)");
-            if (speedLabel) speedLabel->SetText("speed: 0 px/s");
+            Release();
             return true;
         }
         return false;
+    }
+
+    void OnMouseCancel(MouseButton b) override {
+        (void)b;
+        Release();
     }
 
     void OnMouseMove(float, float) override {
@@ -91,9 +105,13 @@ struct MouseCaptureBox : Component {
             double dx = in->mouseX - lastX;
             double dy = in->mouseY - lastY;
             double dist = std::sqrt(dx * dx + dy * dy);
-            if (captured && dist > 0.5) {
-                speed = (float)(dist / dt);
-                angle = (float)std::atan2(dy, dx);
+            if (captured) {
+                if (dist > 0.5) {
+                    speed = (float)(dist / dt);
+                    angle = (float)std::atan2(dy, dx);
+                } else {
+                    speed = 0.0f;  // 静止时箭头归零
+                }
             }
             lastX = in->mouseX;
             lastY = in->mouseY;
@@ -275,6 +293,11 @@ int main(int argc, char** argv) {
         std::snprintf(buf, sizeof(buf), "Scroll item %02d", i);
         item->SetLabel(buf);
         item->SetFontScale(0.5f);
+        item->SetOnClick([&, i](Button*) {
+            char b2[64];
+            std::snprintf(b2, sizeof(b2), "scroll item %02d clicked", i);
+            log(b2);
+        });
     }
 
     // ===== 图像显示（yolo 框选）=====
@@ -316,6 +339,10 @@ int main(int argc, char** argv) {
     mouseStatusLabel->SetColor({0.65f, 0.75f, 0.85f, 1.0f});
     mouseBox->speedLabel = mouseSpeedLabel;
     mouseBox->statusLabel = mouseStatusLabel;
+    // 绑定系统级鼠标捕获（隐藏光标并锁定窗口）
+    mouseBox->onSystemCapture = [&](bool c) {
+        if (app.GetContext()) app.GetContext()->SetMouseCaptured(c);
+    };
 
     // ===== 透明度示例：半透明矩形半叠在不透明矩形上（透明度由滑条控制）=====
     auto* opaqueRect = root->AddChild<Fill>();
