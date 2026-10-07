@@ -1,0 +1,174 @@
+#include "ui/UIApplication.h"
+#include "ui/CanvasGroup.h"
+#include "ui/Widgets.h"
+#include <opencv2/imgproc.hpp>
+#include <iostream>
+#include <stdexcept>
+#include <cmath>
+
+using namespace ui;
+static void Check(bool ok, const char* message) {
+    if (!ok) throw std::runtime_error(message);
+}
+struct Fill : Component {
+    Color color = Color::Red();
+    void OnDraw(Renderer2D& r) override { r.FillRect(0, 0, m_width, m_height, color); }
+};
+struct ClipEscape : Component {
+    void OnDraw(Renderer2D& r) override {
+        r.PushScissor(0, 0, 128, 96);
+        r.FillRect(-100, -100, 300, 300, Color::Green());
+        r.PopScissor();
+    }
+};
+static void Pixel(const cv::Mat& frame, int x, int y, cv::Vec4b expected, int tolerance = 2) {
+    auto actual = frame.at<cv::Vec4b>(y, x);
+    for (int c = 0; c < 4; ++c) {
+        if (std::abs(int(actual[c]) - int(expected[c])) > tolerance) {
+            std::cerr << "pixel " << x << ',' << y << " got " << actual << " expected " << expected << '\n';
+            throw std::runtime_error("pixel mismatch");
+        }
+    }
+}
+static void Click(UIApplication& app, float x, float y) {
+    app.InjectMousePos(x, y);
+    app.InjectMouseButton(MouseButton::Left, true);
+    app.RunFrame();
+    app.InjectMouseButton(MouseButton::Left, false);
+    app.RunFrame();
+}
+int main() {
+    try {
+        UIApplication app;
+        UIApplication::Config cfg;
+        cfg.showWindow = false;
+        cfg.renderWidth = 128; cfg.renderHeight = 96;
+        cfg.clearColor = Color::Transparent();
+        Check(app.Init(cfg), "headless Init");
+        auto* root = app.GetRoot();
+        auto* direct = root->AddChild<Fill>(); direct->SetRect(2, 2, 12, 12); direct->SetOpacity(0.5f);
+        auto* canvas = root->AddChild<CanvasGroup>(); canvas->SetRect(30, 10, 50, 50); canvas->SetOpacity(0);
+        auto* nested = canvas->AddChild<CanvasGroup>(); nested->SetRect(5, 5, 30, 30);
+        auto* nestedFill = nested->AddChild<Fill>(); nestedFill->SetRect(0, 0, 12, 12); nestedFill->SetOpacity(0.5f);
+        auto* sibling = root->AddChild<Fill>(); sibling->SetRect(100, 4, 12, 12); sibling->color = Color::Blue();
+        auto* clipped = root->AddChild<ClipEscape>(); clipped->SetRect(90, 70, 10, 10);
+        app.RenderOffscreen();
+        Pixel(app.GetFrameBGRA(), 4, 4, {0, 0, 255, 128});
+        Pixel(app.GetFrameBGRA(), 37, 17, {0, 0, 255, 128});
+        Pixel(app.GetFrameBGRA(), 104, 8, {255, 0, 0, 255});
+        Pixel(app.GetFrameBGRA(), 89, 75, {0, 0, 0, 0});
+        Pixel(app.GetFrameBGRA(), 95, 75, {0, 255, 0, 255});
+        canvas->SetCanvasSize(80, 80); nested->SetCanvasSize(40, 40);
+        app.RenderOffscreen(); Pixel(app.GetFrameBGRA(), 37, 17, {0, 0, 255, 128});
+        Check(glGetError() == GL_NO_ERROR, "GL errors in nested rendering");
+
+        // cv::Mat upload, FBO compositing and readback all preserve top/bottom.
+        root = app.SetRoot<Component>();
+        cv::Mat source(4, 4, CV_8UC4, cv::Scalar(255, 0, 0, 255));
+        source(cv::Rect(0, 0, 4, 2)).setTo(cv::Scalar(0, 0, 255, 255));
+        auto* image = root->AddChild<ImageDisplay>(); image->SetRect(0, 0, 40, 40); image->SetImage(source);
+        canvas = root->AddChild<CanvasGroup>(); canvas->SetRect(50, 0, 40, 40);
+        auto* image2 = canvas->AddChild<ImageDisplay>(); image2->SetRect(0, 0, 40, 40); image2->SetImage(source);
+        app.RenderOffscreen();
+        Pixel(app.GetFrameBGRA(), 20, 5, {0, 0, 255, 255}); Pixel(app.GetFrameBGRA(), 20, 35, {255, 0, 0, 255});
+        Pixel(app.GetFrameBGRA(), 70, 5, {0, 0, 255, 255}); Pixel(app.GetFrameBGRA(), 70, 35, {255, 0, 0, 255});
+        source.setTo(cv::Scalar(0, 0, 255, 128)); image->SetImage(source); image2->SetImage(source);
+        app.RenderOffscreen();
+        Pixel(app.GetFrameBGRA(), 20, 20, {0, 0, 255, 128}); Pixel(app.GetFrameBGRA(), 70, 20, {0, 0, 255, 128});
+        image2->SetBorder(2, Color::Green()); app.RenderOffscreen();
+        Pixel(app.GetFrameBGRA(), 50, 10, {0, 255, 0, 255});
+        int imageClicks = 0;
+        image->SetRect(0, 0, 40, 60); image->SetOnClick([&](ImageDisplay*, float, float) { ++imageClicks; });
+        Click(app, 20, 3); Check(imageClicks == 0, "contain padding click");
+        Click(app, 20, 20); Check(imageClicks == 1, "image click");
+        app.InjectMousePos(20, 20); app.InjectMouseButton(MouseButton::Left, true); app.RunFrame();
+        int boxes = 0; image->SetOnBoxDrawn([&](ImageDisplay*, float, float, float, float) { ++boxes; });
+        image->SetVisible(false); app.RunFrame(); app.InjectMouseButton(MouseButton::Left, false); app.RunFrame();
+        Check(boxes == 0 && imageClicks == 1 && !image->WantsMouseCapture(), "hidden image cancels without callback");
+        image->SetImage(cv::Mat(2, 2, CV_32FC3)); Check(!image->HasImage(), "unsupported image rejected");
+
+        // FBO, viewport, scissor and pack state are restored, independent read/draw bindings.
+        GLuint fb[2]; glGenFramebuffers(2, fb);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fb[0]); glBindFramebuffer(GL_READ_FRAMEBUFFER, fb[1]);
+        glViewport(3, 4, 17, 19); glEnable(GL_SCISSOR_TEST); glScissor(1, 2, 3, 4);
+        glPixelStorei(GL_PACK_ROW_LENGTH, 200); glPixelStorei(GL_PACK_SKIP_ROWS, 1);
+        app.RenderOffscreen();
+        GLint value, vp[4]; glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &value); Check(GLuint(value) == fb[0], "draw binding");
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &value); Check(GLuint(value) == fb[1], "read binding");
+        glGetIntegerv(GL_VIEWPORT, vp); Check(vp[0] == 3 && vp[3] == 19, "viewport restore");
+        glGetIntegerv(GL_PACK_ROW_LENGTH, &value); Check(value == 200, "pack restore");
+        Check(glIsEnabled(GL_SCISSOR_TEST), "scissor restore");
+        glBindFramebuffer(GL_FRAMEBUFFER, 0); glDeleteFramebuffers(2, fb);
+        glPixelStorei(GL_PACK_ROW_LENGTH, 0); glPixelStorei(GL_PACK_SKIP_ROWS, 0); glDisable(GL_SCISSOR_TEST);
+        Check(glGetError() == GL_NO_ERROR, "GL errors in readback");
+
+        root = app.SetRoot<Component>();
+        auto* scroll = root->AddChild<ScrollView>(); scroll->SetRect(10, 10, 50, 50); scroll->SetCanvasSize(50, 160);
+        auto* item = scroll->AddChild<Button>(); item->SetRect(0, 0, 50, 160);
+        int clicks = 0; item->SetOnClick([&](Button*) { ++clicks; });
+        app.InjectMousePos(20, 20); app.InjectScroll(-1); app.RunFrame();
+        Check(scroll->GetScrollY() == 40, "wheel over button bubbles to scrollview");
+        Check(item->GetScreenRect().y == -30, "scrolled hit coordinates");
+        Check(root->HitTest(20, 5) == root, "parent clips hit test");
+        Click(app, 20, 20); Check(clicks == 1, "scrolled click");
+        Click(app, 57, 55); Check(clicks == 1 && scroll->GetScrollY() > 40, "scrollbar wins hit test");
+        scroll->SetScrollY(-40); Check(scroll->GetScrollY() == 0, "negative scroll clamp");
+        scroll->SetScrollY(100); scroll->SetSize(50, 160); app.RunFrame(); Check(scroll->GetScrollY() == 0, "resize reclamp");
+
+        root = app.SetRoot<Component>();
+        auto* button = root->AddChild<Button>(); button->SetRect(0, 0, 30, 20);
+        clicks = 0; button->SetOnClick([&](Button*) { ++clicks; });
+        app.InjectMousePos(10, 10); app.InjectMouseButton(MouseButton::Left, true); app.RunFrame();
+        app.InjectMousePos(90, 90); app.InjectMouseButton(MouseButton::Left, false); app.RunFrame();
+        Check(!button->IsPressed() && clicks == 0, "button release outside");
+        app.InjectMousePos(10, 10); app.InjectMouseButton(MouseButton::Left, true);
+        app.InjectMouseButton(MouseButton::Left, false); app.RunFrame(); Check(clicks == 1, "same frame click");
+        auto* slider = root->AddChild<Slider>(); slider->SetRect(0, 30, 60, 20);
+        slider->SetRange(1000000, 1000000); Check(slider->GetNormalized() == 0, "zero range"); slider->SetRange(0, 1);
+        app.InjectMousePos(10, 35); app.InjectMouseButton(MouseButton::Left, true); app.RunFrame();
+        app.InjectMouseButton(MouseButton::Right, true); app.RunFrame(); app.InjectMouseButton(MouseButton::Right, false); app.RunFrame();
+        app.InjectMousePos(100, 90); app.RunFrame(); Check(slider->IsDragging() && slider->GetValue() == 1, "unrelated release preserves capture");
+        app.InjectMousePos(30, 40); app.InjectMouseButton(MouseButton::Left, false); app.RunFrame();
+        Check(!slider->IsDragging() && std::fabs(slider->GetValue() - 0.5f) < 0.001f, "release position updates slider");
+        app.InjectMousePos(-2, -2); app.RunFrame(); Check(!app.GetInput().mouseInside, "headless mouse bounds");
+
+        auto* box = root->AddChild<TextBox>(); box->SetRect(0, 55, 120, 30); box->SetText("A中B");
+        Click(app, 115, 65); app.InjectKey(KEY_BACKSPACE, true); app.RunFrame(); app.InjectKey(KEY_BACKSPACE, false); app.RunFrame();
+        Check(box->GetText() == "A中", "UTF8 click end/backspace");
+        app.InjectChar(0x1F600); app.InjectChar(0xD800); app.InjectChar(0x110000); app.RunFrame();
+        Check(box->GetText() == "A中😀", "valid Unicode only");
+        app.SetFocus(nullptr); Check(!box->IsFocused(), "SetFocus notification"); app.SetFocus(box);
+        box->SetVisible(false); app.InjectChar('x'); app.RunFrame(); Check(!box->IsFocused() && !app.GetFocus(), "hidden focus canceled");
+
+        // Callback may replace the root and destroy its own callable and dispatch target.
+        button->SetOnClick([&](Button*) { app.SetRoot<Component>(); });
+        Click(app, 10, 10); Check(app.GetRoot()->GetChildCount() == 0, "callback root replacement");
+        root = app.GetRoot();
+        auto* dropdown = root->AddChild<Dropdown>(); dropdown->SetItems({"A", "B"}); dropdown->SetRect(5, 5, 70, 20);
+        dropdown->SetItemHeight(25); dropdown->SetOpen(true); app.RenderOffscreen();
+        Check(root->HitTest(10, 55) != root, "dropdown layout after items before size");
+        Click(app, 10, 55); Check(dropdown->GetSelectedIndex() == 1 && !dropdown->IsOpen(), "dropdown choose second item");
+        dropdown->SetOpen(true); app.RunFrame(); dropdown->SetItems({"C"}); app.RunFrame();
+        Check(glGetError() == GL_NO_ERROR, "GL errors at end");
+
+        app.SetRoot(std::unique_ptr<Component>{}); app.RenderOffscreen();
+        Pixel(app.GetFrameBGRA(), 0, 0, {0, 0, 0, 0});
+        Check(!app.GetInput().IsMouseDown(MouseButton::Count), "mouse sentinel is safe");
+        app.GetRenderer()->DrawTexture(nullptr, 0, 0, 10, 10);
+        for (int i = 0; i < 2; ++i) {
+            Check(app.Init(cfg), "reinitialize app");
+            auto* text = app.GetRoot()->AddChild<Text>(); text->SetRect(0, 0, 100, 30); text->SetText("cache lifecycle");
+            app.RenderOffscreen(); Check(glGetError() == GL_NO_ERROR, "text cache context lifecycle");
+        }
+        {
+            UIApplication other; Check(other.Init(cfg), "second simultaneous context"); other.RenderOffscreen();
+        }
+        app.RenderOffscreen(); Check(!app.GetFrame().empty() && glGetError() == GL_NO_ERROR, "surviving EGL context");
+        auto* shutdownBox = app.GetRoot()->AddChild<TextBox>(); shutdownBox->SetRect(0, 40, 100, 20);
+        shutdownBox->SetOnSubmit([&](TextBox*) { app.Shutdown(); }); app.SetFocus(shutdownBox);
+        app.InjectKey(KEY_ENTER, true); app.RunFrame(); Check(!app.GetContext(), "shutdown from callback");
+        app.Shutdown(); Check(Component::GlobalInput() == nullptr, "global input teardown");
+        cfg.renderWidth = 0; Check(!app.Init(cfg), "zero resolution rejected");
+        std::cout << "PASS: rendering, alpha, clipping, texture orientation, FBO state, input, UTF-8, lifecycle\n";
+    } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
+}
