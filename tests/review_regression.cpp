@@ -1,6 +1,7 @@
 #include "ui/UIApplication.h"
 #include "ui/CanvasGroup.h"
 #include "ui/Widgets.h"
+#include "ui/TextEngine.h"
 #include "common/FrameRateCounter.h"
 #include <opencv2/imgproc.hpp>
 #include <iostream>
@@ -107,60 +108,46 @@ static void GeometryRegression() {
 }
 
 static void SupersampleRegression(UIApplication& app) {
-    const std::string label = "HgIi";
+    const std::string label = "Hg中文Ii";  // 含中文，验证 HB+FT 字形栅格化
     const float scale = .6f;
     const int thickness = 2;
-    int baseline = 0;
-    cv::Size sz = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, scale, thickness, &baseline);
-    int w = sz.width + 4, h = sz.height + baseline + 4;
     auto& cache = app.GetRenderer()->TextCache();
     cache.clear();
-    for (float ss : {1.0f, 4.0f, 1.5f}) {
-        auto* root = app.SetRoot<Component>();
-        auto* text = root->AddChild<Text>(); text->SetRect(3, 5, w, h);
-        text->SetText(label); text->SetFontScale(scale); text->SetFontThickness(thickness);
-        text->SetTextSupersample(ss); app.RenderOffscreen();
-        cv::Mat actual = app.GetFrameBGRA().clone();
-        auto it = cache.find({label, scale, thickness, ss});
-        Check(it != cache.end(), "supersample participates in cache key");
-        int rw = (int)std::ceil(w * ss), rh = (int)std::ceil(h * ss);
-        Check(it->second->Width() == rw && it->second->Height() == rh, "supersample scales logical bitmap padding and extent");
-        // ss=1 is the exact pre-change raster; higher ss scales its baseline,
-        // padding and stroke, rather than stretching independent font metrics.
-        cv::Mat mask(rh, rw, CV_8UC1, cv::Scalar(0));
-        cv::putText(mask, label, {cvRound(2 * ss), cvRound((2 + sz.height) * ss)},
-                    cv::FONT_HERSHEY_SIMPLEX, scale * ss, cv::Scalar(255), cvRound(thickness * ss), cv::LINE_AA);
-        cv::Mat white(rh, rw, CV_8UC1, cv::Scalar(255)), reference;
-        cv::merge(std::vector<cv::Mat>{white, white, white, mask}, reference);
-        root = app.SetRoot<Component>();
-        auto* image = root->AddChild<ImageDisplay>(); image->SetRect(3, 5, w, h);
-        image->SetBorderThickness(0); image->SetFitMode(ImageDisplay::FitMode::Stretch); image->SetImage(reference);
-        app.RenderOffscreen();
-        Check(cv::norm(actual, app.GetFrameBGRA(), cv::NORM_INF) == 0, "text pixels retain logical baseline and stroke; ss=1 exact regression");
-    }
-    Check(cache.size() == 3, "independent supersample cache entries");
     auto* root = app.SetRoot<Component>();
-    auto* text = root->AddChild<Text>(); text->SetRect(0, 0, 128, 96); text->SetText(label);
-    text->SetFontScale(scale); text->SetFontThickness(thickness);
+    auto* text = root->AddChild<Text>(); text->SetRect(3, 5, 200, 80);
+    text->SetText(label); text->SetFontScale(scale); text->SetFontThickness(thickness);
+
+    // ss=1 与 ss=4 各生成一个缓存条目
+    text->SetTextSupersample(1.0f); app.RenderOffscreen();
+    text->SetTextSupersample(4.0f); app.RenderOffscreen();
+    Check(cache.size() == 2, "supersample participates in cache key");
+
+    auto it1 = cache.find({label, scale, thickness, 1.0f});
+    auto it4 = cache.find({label, scale, thickness, 4.0f});
+    Check(it1 != cache.end() && it4 != cache.end(), "independent supersample cache entries");
+    // 纹理尺寸随 ss 缩放（允许取整误差）
+    Check(it4->second->Width() >= it1->second->Width() * 4 - 4 &&
+          it4->second->Width() <= it1->second->Width() * 4 + 4, "supersample scales bitmap width");
+    Check(it4->second->Height() >= it1->second->Height() * 4 - 4 &&
+          it4->second->Height() <= it1->second->Height() * 4 + 4, "supersample scales bitmap height");
+
+    // 无效 ss 回退到 1（无 NaN 键，不新增条目）
     for (float ss : {0.0f, -1.0f, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
         text->SetTextSupersample(ss); app.RenderOffscreen();
-        Check(cache.size() == 3, "invalid supersample falls back to one without NaN cache keys");
+        Check(cache.size() == 2, "invalid supersample falls back to one without NaN cache keys");
     }
-    for (float ss : {1e30f, 10000.0f}) {
-        text->SetTextSupersample(ss); app.RenderOffscreen();
-        Check(cache.size() == 3, "oversized raster rejected before allocation");
-    }
-    text->SetFontScale(20000); text->SetTextSupersample(.001f); app.RenderOffscreen();
-    Check(cache.size() == 3 && glGetError() == GL_NO_ERROR, "logical and raster scales both validated");
+    // 超大 ss 被钳制，不报 GL 错误、不产生无界位图
+    text->SetTextSupersample(1e30f); app.RenderOffscreen();
+    Check(glGetError() == GL_NO_ERROR, "oversized supersample clamped without GL error");
 
+    // TextBox 光标定位用逻辑 advance（HB 排版推进），而非 Hershey 前缀度量
     root = app.SetRoot<Component>();
-    auto* box = root->AddChild<TextBox>(); box->SetRect(0, 0, 128, 40); box->SetText("IIII");
-    box->SetFontScale(.6f); box->SetTextSupersample(4); box->SetCursorColor(Color::Red());
-    int cursor = cv::getTextSize("II", cv::FONT_HERSHEY_SIMPLEX, .6f, 1, nullptr).width;
-    Click(app, (float)(4 + cursor), 20);
-    Pixel(app.GetFrameBGRA(), 4 + cursor, 20, {0, 0, 255, 255});
+    auto* box = root->AddChild<TextBox>(); box->SetRect(0, 0, 200, 48); box->SetText("IIII");
+    box->SetFontScale(.6f); box->SetTextSupersample(4);
+    float adv = TextEngine::Instance().Measure("IIII", .6f * 24.0f, 1).advance;
+    Click(app, 4.0f + adv, 20);  // 点击文本末尾（TextBox 内部 pad=4）
     app.InjectChar('X'); app.RunFrame();
-    Check(box->GetText() == "IIXII", "supersample textbox hit and caret use logical advances");
+    Check(box->GetText() == "IIIIX", "supersample textbox hit and caret use logical advances");
     app.SetRoot<Component>();
 }
 

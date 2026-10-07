@@ -1,6 +1,7 @@
 #include "ui/Widgets.h"
 #include "ui/Renderer2D.h"
 #include "ui/Texture.h"
+#include "ui/TextEngine.h"
 
 #include <opencv2/imgproc.hpp>
 
@@ -12,59 +13,38 @@
 namespace ui {
 
 // ===========================================================================
-// 文本栅格化缓存（OpenCV Hershey 字体 → 白色蒙版纹理，绘制时用颜色调制）
-// 注意：Hershey 字体仅支持 ASCII，中文等会以 '?' 显示（模板级简化，可替换为
-// FreeType/stb_truetype 扩展）。
+// 文本栅格化缓存（HarfBuzz + FreeType 矢量轮廓 → 灰度 coverage 纹理）
+// 支持中文等任意 Unicode，覆盖范围取决于所选字体（Noto Sans CJK SC 等）。
 // ===========================================================================
 namespace {
 
 using TextKey = std::tuple<std::string, float, int, float>;  // (text, scale, thickness, supersample)
 
-bool ValidTextSize(const std::string& text, float scale, int thickness) {
-    // Hershey 栅格器使用 16 位小数；先避免固定点/文本度量整数溢出。
-    return !text.empty() && std::isfinite(scale) && scale > 0 && scale <= 16384 &&
-           thickness > 0 && thickness <= 32767 &&
-           64.0 * scale * (double(text.size()) + 1) + thickness < std::numeric_limits<int>::max() / 2;
-}
+// 逻辑字号映射：Hershey 的 scale 近似换算为像素字号（scale=1 → 24px）
+constexpr float kBaseFontPx = 24.0f;
 
-struct TextMetrics {
+struct TextSize {
     float w = 0.0f;
     float h = 0.0f;
 };
 
-// ss 为文字渲染细化倍数（超采样）：以 scale*ss 的字号栅格化，绘制时缩回 scale 的逻辑尺寸，
-// 得到 ss 倍超采样的抗锯齿文字。
+// ss 为文字渲染细化倍数（超采样）：以 scale*ss 的字号栅格化轮廓，绘制时缩回 scale 的逻辑尺寸。
 Texture* GetTextTexture(Renderer2D& renderer, const std::string& text, float scale, int thickness, float ss) {
+    if (text.empty()) return nullptr;
     if (!std::isfinite(ss) || ss <= 0.0f) ss = 1.0f;
-    if (!ValidTextSize(text, scale, thickness)) return nullptr;
-    float rscale = scale * ss;  // 超采样栅格化字号
-    double stroke = double(thickness) * ss;
-    if (!std::isfinite(stroke) || stroke > 32767) return nullptr;
-    int rthickness = std::max(1, (int)std::lround(stroke));
-    if (!ValidTextSize(text, rscale, rthickness)) return nullptr;
+    else if (ss > 8.0f) ss = 8.0f;  // 与 TextEngine 的超采样上限一致，避免缓存键发散
     TextKey key{text, scale, thickness, ss};
     auto& cache = renderer.TextCache();
     auto it = cache.find(key);
     if (it != cache.end()) return it->second.get();
 
-    int baseline = 0;
-    cv::Size sz = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, scale, thickness, &baseline);
-    if (sz.width <= 0 || sz.height <= 0) return nullptr;
-    int pad = 2;
-    // 放大整个逻辑位图（含留白和基线），不能把高字号的独立度量拉伸回去：
-    // 后者会改变字形宽高比、起点和基线，使 TextBox 的逻辑光标错位。
-    double rw = std::ceil(double(sz.width + pad * 2) * ss);
-    double rh = std::ceil(double(sz.height + baseline + pad * 2) * ss);
-    GLint maxSize = 0;
-    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxSize);
-    // 先检查浮点范围再转整数；面积上限也限制 CPU 临时位图的内存占用。
-    if (!std::isfinite(rw) || !std::isfinite(rh) || rw <= 0 || rh <= 0 ||
-        rw > maxSize || rh > maxSize || rw * rh > 16.0 * 1024 * 1024) return nullptr;
-    int w = (int)rw, h = (int)rh;
-    cv::Mat mask(h, w, CV_8UC1, cv::Scalar(0));
-    cv::putText(mask, text, cv::Point(cvRound(pad * ss), cvRound((pad + sz.height) * ss)),
-                cv::FONT_HERSHEY_SIMPLEX, rscale, cv::Scalar(255), rthickness, cv::LINE_AA);
-    cv::Mat white(h, w, CV_8UC1, cv::Scalar(255)), img;
+    TextEngine& eng = TextEngine::Instance();
+    if (!eng.Available()) return nullptr;
+    cv::Mat mask = eng.Rasterize(text, scale * kBaseFontPx, thickness, ss);
+    if (mask.empty()) return nullptr;
+
+    // 白 RGB + coverage alpha；Texture::Upload 会预乘为 coverage 全通道
+    cv::Mat white(mask.rows, mask.cols, CV_8UC1, cv::Scalar(255)), img;
     cv::merge(std::vector<cv::Mat>{white, white, white, mask}, img);
 
     auto tex = std::make_unique<Texture>();
@@ -74,19 +54,19 @@ Texture* GetTextTexture(Renderer2D& renderer, const std::string& text, float sca
     return raw;
 }
 
-TextMetrics MeasureText(const std::string& text, float scale, int thickness) {
-    if (!ValidTextSize(text, scale, thickness)) return {0.0f, 0.0f};
-    int baseline = 0;
-    cv::Size sz = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, scale, thickness, &baseline);
-    int pad = 2;
-    return {(float)(sz.width + pad * 2), (float)(sz.height + baseline + pad * 2)};
+TextSize MeasureText(const std::string& text, float scale, int thickness) {
+    if (text.empty()) return {0.0f, 0.0f};
+    TextEngine& eng = TextEngine::Instance();
+    if (!eng.Available()) return {0.0f, 0.0f};
+    ui::TextMetrics m = eng.Measure(text, scale * kBaseFontPx, thickness);
+    return {m.width, m.height};
 }
 
 float TextPixelWidth(const std::string& text, float scale, int thickness) {
-    if (!ValidTextSize(text, scale, thickness)) return 0.0f;
-    int baseline = 0;
-    cv::Size sz = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, scale, thickness, &baseline);
-    return (float)sz.width;
+    if (text.empty()) return 0.0f;
+    TextEngine& eng = TextEngine::Instance();
+    if (!eng.Available()) return 0.0f;
+    return eng.Measure(text, scale * kBaseFontPx, thickness).advance;
 }
 
 } // namespace
@@ -113,7 +93,7 @@ void Button::OnDraw(Renderer2D& r) {
     if (!m_label.empty()) {
         Texture* tex = GetTextTexture(r, m_label, m_fontScale, m_fontThickness, m_textSS);
         if (tex) {
-            TextMetrics m = MeasureText(m_label, m_fontScale, m_fontThickness);
+            TextSize m = MeasureText(m_label, m_fontScale, m_fontThickness);
             r.DrawTexture(tex, (s.x - m.w) * 0.5f, (s.y - m.h) * 0.5f, m.w, m.h, m_labelColor);
         }
     }
@@ -227,7 +207,7 @@ void Text::OnDraw(Renderer2D& r) {
     if (m_text.empty()) return;
     Texture* tex = GetTextTexture(r, m_text, m_fontScale, m_fontThickness, m_textSS);
     if (!tex) return;
-    TextMetrics m = MeasureText(m_text, m_fontScale, m_fontThickness);
+    TextSize m = MeasureText(m_text, m_fontScale, m_fontThickness);
 
     float x = 0.0f;
     switch (m_halign) {
@@ -270,7 +250,7 @@ void TextBox::OnDraw(Renderer2D& r) {
     if (!shown.empty()) {
         Texture* tex = GetTextTexture(r, shown, m_fontScale, m_fontThickness, m_textSS);
         if (tex) {
-            TextMetrics m = MeasureText(shown, m_fontScale, m_fontThickness);
+            TextSize m = MeasureText(shown, m_fontScale, m_fontThickness);
             r.DrawTexture(tex, pad, (s.y - m.h) * 0.5f, m.w, m.h, col);
         }
     }

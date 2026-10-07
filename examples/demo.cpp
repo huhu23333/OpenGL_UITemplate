@@ -208,7 +208,7 @@ int main(int argc, char** argv) {
     auto* title = root->AddChild<Text>();
     place(title, 40, 30, 1200, 40);
     title->SetTextSupersample(4.0f);
-    title->SetText("OpenGL UI Template - component tree demo");
+    title->SetText("OpenGL UI 组件树演示 — HarfBuzz+FreeType 中文支持");
     title->SetFontScale(2.0f);
     title->SetFontThickness(4);
     title->SetColor(Color::White());
@@ -262,7 +262,7 @@ int main(int argc, char** argv) {
     auto* btn = root->AddChild<Button>();
     place(btn, 40, 90, 200, 48);
     btn->SetTextSupersample(4.0f);
-    btn->SetLabel("Click Me");
+    btn->SetLabel("点我 Click Me");
     btn->SetFontScale(1.2f);
     btn->SetOnClick([&](Button*) {
         ++clickCount;

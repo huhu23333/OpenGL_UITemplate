@@ -20,6 +20,9 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GLFW REQUIRED glfw3)
 pkg_check_modules(GLES REQUIRED glesv2)
 pkg_check_modules(EGL  REQUIRED egl)
+pkg_check_modules(FREETYPE REQUIRED freetype2)
+pkg_check_modules(HARFBUZZ REQUIRED harfbuzz)
+pkg_check_modules(FONTCONFIG REQUIRED fontconfig)
 find_package(OpenCV REQUIRED)
 
 # ===== UI 核心库（静态库）=====
@@ -31,6 +34,7 @@ add_library(ui STATIC
     src/Widgets.cpp
     src/CanvasGroup.cpp
     src/UIApplication.cpp
+    src/TextEngine.cpp
     src/common/FrameRateCounter.cpp
 )
 
@@ -39,16 +43,25 @@ target_include_directories(ui PUBLIC
     ${GLFW_INCLUDE_DIRS}
     ${GLES_INCLUDE_DIRS}
     ${EGL_INCLUDE_DIRS}
+    ${FREETYPE_INCLUDE_DIRS}
+    ${HARFBUZZ_INCLUDE_DIRS}
+    ${FONTCONFIG_INCLUDE_DIRS}
 )
 target_compile_options(ui PRIVATE
     ${GLFW_CFLAGS_OTHER}
     ${GLES_CFLAGS_OTHER}
     ${EGL_CFLAGS_OTHER}
+    ${FREETYPE_CFLAGS_OTHER}
+    ${HARFBUZZ_CFLAGS_OTHER}
+    ${FONTCONFIG_CFLAGS_OTHER}
 )
 target_link_libraries(ui PUBLIC
     ${GLFW_LIBRARIES}
     ${GLES_LIBRARIES}
     ${EGL_LIBRARIES}
+    ${FREETYPE_LIBRARIES}
+    ${HARFBUZZ_LIBRARIES}
+    ${FONTCONFIG_LIBRARIES}
     ${OpenCV_LIBS}
 )
 
