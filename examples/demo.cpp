@@ -220,10 +220,12 @@ int main(int argc, char** argv) {
         log("button clicked (" + std::to_string(clickCount) + ")");
     });
 
-    // ===== 滑块 =====
+    // ===== 滑块（控制半透明矩形的透明度）=====
+    Text* translucent = nullptr;  // 稍后创建，滑条回调驱动其透明度
+
     auto* sliderLabel = root->AddChild<Text>();
     sliderLabel->SetRect(360, 160, 200, 24);
-    sliderLabel->SetText("value: 30.0");
+    sliderLabel->SetText("opacity: 30%");
     sliderLabel->SetFontScale(0.5f);
     sliderLabel->SetAlignment(Text::HAlign::Left, Text::VAlign::Middle);
     sliderLabel->SetColor(Color::White());
@@ -234,8 +236,14 @@ int main(int argc, char** argv) {
     slider->SetValue(30.0f);
     slider->SetOnChange([&](Slider*, float v) {
         char buf[64];
-        std::snprintf(buf, sizeof(buf), "value: %.1f", v);
+        std::snprintf(buf, sizeof(buf), "opacity: %.0f%%", v);
         sliderLabel->SetText(buf);
+        if (translucent) {
+            translucent->SetOpacity(v / 100.0f);
+            char b2[32];
+            std::snprintf(b2, sizeof(b2), "opacity %.0f%%", v);
+            translucent->SetText(b2);
+        }
         log("slider -> " + std::string(buf));
     });
 
@@ -309,18 +317,23 @@ int main(int argc, char** argv) {
     mouseBox->speedLabel = mouseSpeedLabel;
     mouseBox->statusLabel = mouseStatusLabel;
 
-    // ===== 透明度示例（半透明面板）=====
-    auto* translucent = root->AddChild<Text>();
-    translucent->SetRect(480, 160, 160, 86);
-    translucent->SetText("50% opacity");
+    // ===== 透明度示例：半透明矩形半叠在不透明矩形上（透明度由滑条控制）=====
+    auto* opaqueRect = root->AddChild<Fill>();
+    opaqueRect->SetRect(40, 720, 170, 110);
+    opaqueRect->color = {0.90f, 0.45f, 0.15f, 1.0f};  // 橙色（不透明）
+
+    translucent = root->AddChild<Text>();
+    translucent->SetRect(125, 775, 170, 110);        // 与橙色矩形错开半宽半高，形成半叠
+    translucent->SetText("opacity 30%");
     translucent->SetFontScale(0.45f);
+    translucent->SetFontThickness(2);
     translucent->SetAlignment(Text::HAlign::Center, Text::VAlign::Middle);
-    translucent->SetBackground({0.2f, 0.45f, 0.85f, 1.0f});
-    translucent->SetOpacity(0.5f);
+    translucent->SetBackground({0.2f, 0.45f, 0.85f, 1.0f});  // 蓝色
+    translucent->SetOpacity(0.3f);
 
     // ===== 边框示例（纯 Component，默认绘制边框）=====
     auto* bordered = root->AddChild<Component>();
-    bordered->SetRect(480, 270, 160, 60);
+    bordered->SetRect(340, 720, 160, 60);
     bordered->SetBorder(3.0f, {1.0f, 0.6f, 0.2f, 1.0f});
 
     // 弹出菜单最后添加，避免后绘制的图像挡住选项 C/D 及其鼠标命中。
