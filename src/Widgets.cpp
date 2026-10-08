@@ -33,12 +33,14 @@ Texture* GetTextTexture(Renderer2D& renderer, const std::string& text, float sca
     if (text.empty() || !std::isfinite(scale) || scale <= 0.0f) return nullptr;
     if (!std::isfinite(ss) || ss <= 0.0f) ss = 1.0f;
     ss = std::max(1.0f, std::min(ss, 8.0f));  // 与 TextEngine 的范围一致，避免缓存键发散
-    TextKey key{text, scale, thickness, ss};
+    TextEngine& eng = TextEngine::Instance();
+    const float effectiveScale = scale * eng.GetResolutionScale();
+    if (!std::isfinite(effectiveScale) || effectiveScale <= 0.0f) return nullptr;
+    TextKey key{text, effectiveScale, thickness, ss};
     auto& cache = renderer.TextCache();
     auto it = cache.find(key);
     if (it != cache.end()) return it->second.get();
 
-    TextEngine& eng = TextEngine::Instance();
     if (!eng.Available()) return nullptr;
     cv::Mat mask = eng.Rasterize(text, scale * kBaseFontPx, thickness, ss);
     if (mask.empty()) return nullptr;

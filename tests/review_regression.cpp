@@ -201,6 +201,82 @@ static void SupersampleRegression(UIApplication& app) {
     app.SetRoot<Component>();
 }
 
+static void ResolutionRegression(UIApplication& app) {
+    auto& engine = TextEngine::Instance();
+    auto& renderer = *app.GetRenderer();
+    Check(engine.GetResolutionScale() == 1 && renderer.GetStrokeScale() == 1, "default scales are one");
+    const std::string label = "AV中文";
+    auto original = engine.Rasterize(label, 24, 4, 1);
+    auto doubled = engine.Rasterize(label, 48, 4, 1);
+    auto doubledMetrics = engine.Measure(label, 48, 4);
+    engine.SetResolutionScale(2);
+    Check(cv::norm(doubled, engine.Rasterize(label, 24, 4, 1), cv::NORM_INF) == 0,
+          "resolution scales glyphs and synthetic bold together");
+    Check(engine.Measure(label, 24, 4).advance == doubledMetrics.advance, "scaled metric cache key");
+    Check(engine.Measure(label, 4096, 1).width == 0 && engine.Rasterize(label, 4096, 1, 1).empty(),
+          "scaled size above maximum rejected");
+    engine.SetResolutionScale(.5f);
+    Check(engine.Measure(label, 1.0f / 64, 1).width == 0 && engine.Rasterize(label, 1.0f / 64, 1, 1).empty(),
+          "scaled size below minimum rejected");
+    engine.SetResolutionScale(std::numeric_limits<float>::max());
+    Check(engine.Measure(label, 24, 1).width == 0 && engine.Rasterize(label, 24, 1, 1).empty(),
+          "overflowing scaled font rejected");
+    for (float invalid : {0.0f, -1.0f, std::numeric_limits<float>::infinity(),
+                          std::numeric_limits<float>::quiet_NaN()}) {
+        engine.SetResolutionScale(invalid); renderer.SetStrokeScale(invalid);
+        Check(engine.GetResolutionScale() == 1 && renderer.GetStrokeScale() == 1, "invalid factors fall back to one");
+    }
+    Check(cv::norm(original, engine.Rasterize(label, 24, 4, 1), cv::NORM_INF) == 0, "scale one restores original raster");
+    auto& cache = renderer.TextCache();
+    cache.clear();
+    auto* root = app.SetRoot<Component>();
+    auto* text = root->AddChild<Text>(); text->SetRect(0, 0, 128, 90); text->SetText(label);
+    text->SetFontScale(1); text->SetTextSupersample(1);
+    app.RenderOffscreen();
+    auto* first = cache.at({label, 1.0f, 1, 1.0f}).get();
+    engine.SetResolutionScale(2); app.RenderOffscreen();
+    Check(cache.size() == 2 && cache.at({label, 2.0f, 1, 1.0f})->Width() > first->Width(),
+          "resolution change creates a larger texture instead of reusing old bitmap");
+    app.RenderOffscreen(); Check(cache.size() == 2, "fixed resolution reuses texture cache");
+    engine.SetResolutionScale(1); app.RenderOffscreen();
+    Check(cache.size() == 2 && cache.at({label, 1.0f, 1, 1.0f}).get() == first, "returning resolution reuses original texture");
+    for (float factor : {.5f, 2.0f}) {
+        engine.SetResolutionScale(factor);
+        root = app.SetRoot<Component>();
+        auto* box = root->AddChild<TextBox>(); box->SetRect(0, 0, 128, 90);
+        box->SetText("AV"); box->SetFontScale(1); box->SetCursorColor(Color::Red());
+        auto m = engine.Measure("AV", 24, 1);
+        float endX = 4 + (m.width - m.advance) * .5f + m.advance;
+        Click(app, endX, 40);
+        Pixel(app.GetFrameBGRA(), int(std::ceil(endX)), 40, {0, 0, 255, 255});
+        app.InjectChar('X'); app.RunFrame();
+        Check(box->GetText() == "AVX", "scaled caret hit test and insertion agree");
+    }
+    engine.SetResolutionScale(1);
+    renderer.SetStrokeScale(2);
+    app.SetRoot<Lines>(); app.RenderOffscreen();
+    Pixel(app.GetFrameBGRA(), 25, 4, {0, 0, 255, 255});
+    Pixel(app.GetFrameBGRA(), 25, 3, {0, 0, 0, 0});
+    Check(renderer.GetStrokeScale() == 2, "BeginFrame preserves stroke scale");
+    renderer.PushViewport(64, 48); renderer.PopViewport();
+    Check(renderer.GetStrokeScale() == 2, "viewport switches preserve stroke scale");
+    renderer.SetStrokeScale(1);
+    renderer.BeginFrame(128, 96);
+    renderer.DrawLine(10, 10, 40, 10, 2, Color::White());
+    renderer.SetStrokeScale(std::numeric_limits<float>::max());
+    renderer.DrawLine(10, 20, 40, 20, 2, Color::White());
+    renderer.Flush();
+    GLint bytes = 0; glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &bytes);
+    Check(bytes == 6 * 8 * int(sizeof(float)), "overflowing stroke adds no invalid vertices");
+    renderer.StrokeRect(10, 10, 20, 20, 2, Color::White());
+    renderer.Flush();
+    glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &bytes);
+    Check(bytes == 12 * 8 * int(sizeof(float)), "overflowing rectangle thickness clamps to two finite halves");
+    Check(glGetError() == GL_NO_ERROR, "extreme stroke factors have no GL errors");
+    renderer.SetStrokeScale(1);
+    app.SetRoot<Component>();
+}
+
 static void AlphaRegression(UIApplication& app, UIApplication::Config cfg) {
     for (float alpha : {0.0f, .5f, 1.0f, 2.0f}) {
         cfg.clearColor = {0, 0, 0, alpha}; Check(app.Init(cfg), "alpha path Init");
@@ -232,6 +308,7 @@ int main() {
         GeometryRegression();
         TextEngineRegression();
         SupersampleRegression(app);
+        ResolutionRegression(app);
         AlphaRegression(app, cfg);
         Check(app.Init(cfg), "restore transparent regression context");
         FrameRateCounter counter(3);

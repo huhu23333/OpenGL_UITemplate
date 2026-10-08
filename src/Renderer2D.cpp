@@ -301,7 +301,8 @@ void Renderer2D::FillRect(float x, float y, float w, float h, const Color& c) {
 }
 
 void Renderer2D::StrokeRect(float x, float y, float w, float h, float t, const Color& c) {
-    if (t <= 0.0f || w <= 0.0f || h <= 0.0f) return;
+    if (!std::isfinite(t) || !std::isfinite(x) || !std::isfinite(y) ||
+        !std::isfinite(w) || !std::isfinite(h) || t <= 0.0f || w <= 0.0f || h <= 0.0f) return;
     t *= m_strokeScale;  // 线宽随分辨率缩放
     t = std::min(t, std::min(w, h) * 0.5f);
     // 上、下、左、右四条边
@@ -315,6 +316,7 @@ void Renderer2D::DrawLine(float x0, float y0, float x1, float y1, float thicknes
     if (!std::isfinite(thickness) || thickness <= 0.0f ||
         !std::isfinite(x0) || !std::isfinite(y0) || !std::isfinite(x1) || !std::isfinite(y1)) return;
     thickness *= m_strokeScale;  // 线宽随分辨率缩放
+    if (!std::isfinite(thickness) || thickness <= 0.0f) return;
     float dx = x1 - x0, dy = y1 - y0;
     float len = std::hypot(dx, dy);
     if (!std::isfinite(len) || len < 1e-6f) return;
@@ -328,6 +330,9 @@ void Renderer2D::DrawLine(float x0, float y0, float x1, float y1, float thicknes
         {x1 - nx, y1 - ny, 0, 0, c.r, c.g, c.b, c.a},
         {x0 - nx, y0 - ny, 0, 0, c.r, c.g, c.b, c.a},
     };
+    for (const auto& vertex : v) {
+        if (!std::isfinite(vertex.x) || !std::isfinite(vertex.y)) return;
+    }
     PushQuad(v);
 }
 

@@ -3,6 +3,7 @@
 
 #include <opencv2/core.hpp>
 
+#include <cmath>
 #include <string>
 
 namespace ui {
@@ -30,10 +31,11 @@ public:
 
     // 分辨率缩放因子：所有字号与合成加粗随画布分辨率等比缩放（默认 1）。
     // 例如画布 3840 宽、参考 1920 宽时设为 2，文字随布局一起放大两倍。
-    void SetResolutionScale(float s) { m_resolutionScale = s > 0.0f ? s : 1.0f; }
+    // 非有限或非正因子回退为 1。
+    void SetResolutionScale(float s) { m_resolutionScale = std::isfinite(s) && s > 0.0f ? s : 1.0f; }
     float GetResolutionScale() const { return m_resolutionScale; }
 
-    // sizePx：逻辑字号（1/64..4096 像素，缩放前）；thickness：<=1 常规，2..1024 合成加粗。
+    // sizePx：逻辑字号（乘分辨率因子后须在 1/64..4096 像素范围内）；thickness：<=1 常规，2..1024 合成加粗。
     // 超出支持范围返回空结果；ss 归一化到 [1,8]，非有限值回退为 1。
     TextMetrics Measure(const std::string& utf8, float sizePx, int thickness) const;
 

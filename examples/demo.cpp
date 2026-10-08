@@ -203,7 +203,7 @@ int main(int argc, char** argv) {
 
     // 字号与线宽随画布分辨率等比缩放（与布局的比例缩放保持一致）
     TextEngine::Instance().SetResolutionScale((float)cfg.renderHeight / REF_H * 0.5f);
-    // 箭头粗细、yolo 框边框、组件描边等线宽也按同一因子缩放
+    // 线宽按分辨率比缩放；字号额外乘以用户指定的 0.5
     app.GetRenderer()->SetStrokeScale((float)cfg.renderHeight / REF_H);
 
     // ===== 根容器 =====
