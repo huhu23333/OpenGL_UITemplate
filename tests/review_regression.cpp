@@ -123,7 +123,7 @@ static void TextEngineRegression() {
             auto m = engine.Measure(text, 23.4f, thickness);
             Check(m.width > 0 && m.height > 0 && m.advance > 0, "Unicode and spaces have metrics");
             Check(m.advance == engine.Measure(text, 23.4f, 1).advance, "embolden preserves shaping advance");
-            for (float ss : {1.0f, 1.5f, 4.0f, 8.0f}) {
+            for (float ss : {1.0f, 1.5f, 2.3f, 4.0f, 8.0f}) {
                 auto mask = engine.Rasterize(text, 23.4f, thickness, ss);
                 Check(!mask.empty() && mask.cols == int(std::ceil(m.width * ss)) &&
                       mask.rows == int(std::ceil(m.height * ss)), "measure and raster dimensions share logical layout");
@@ -198,6 +198,39 @@ static void SupersampleRegression(UIApplication& app) {
     app.InjectKey(KEY_RIGHT, true); app.RunFrame(); app.InjectKey(KEY_RIGHT, false); app.RunFrame();
     float kernedX = endX - TextEngine::Instance().Measure("V", .6f * 24.0f, 1).advance;
     Pixel(app.GetFrameBGRA(), int(std::ceil(kernedX)), 20, {0, 0, 255, 255});
+    app.SetRoot<Component>();
+}
+
+static void PrefixRegression(UIApplication& app) {
+    auto& engine = TextEngine::Instance();
+    for (float ss : {1.0f, 1.5f, 2.3f, 8.0f}) {
+        auto plain = engine.Rasterize("speed: A", 20, 1, ss);
+        auto overhang = engine.Rasterize("speed: A\xcc\x81\xcc\x81\xcc\x81\xcc\x81\xcc\x81", 20, 1, ss);
+        cv::Rect prefix(0, 0, int(65 * ss), std::min(plain.rows, overhang.rows));
+        Check(cv::norm(plain(prefix), overhang(prefix), cv::NORM_INF) == 0,
+              "right overhang in suffix does not move the prefix origin");
+    }
+    auto* root = app.SetRoot<Component>();
+    auto* text = root->AddChild<Text>();
+    text->SetRect(0, 0, 128, 96);
+    // 奇数逻辑宽度与非整数 ss 会暴露 ceil 后整张纹理回缩造成的前缀伸缩。
+    text->SetFontScale(21.0f / 24.0f);
+    for (float ss : {1.0f, 1.5f, 2.3f, 4.0f, 8.0f}) {
+        text->SetTextSupersample(ss);
+        text->SetText("speed: 9"); app.RenderOffscreen();
+        cv::Mat first;
+        cv::extractChannel(app.GetFrameBGRA(), first, 3);
+        for (const std::string changed : {"speed: 8", "speed: 10", "speed: 456 px/s"}) {
+            text->SetText(changed); app.RenderOffscreen();
+            cv::Rect prefix(0, 0, int(engine.Measure("speed: ", 21, 1).advance), 96);
+            // GPU UV 插值可有 1 级 coverage 舍入误差，但不得改变前缀几何形状。
+            cv::Mat changedAlpha;
+            cv::extractChannel(app.GetFrameBGRA(), changedAlpha, 3);
+            double error = cv::norm(first(prefix), changedAlpha(prefix), cv::NORM_INF);
+            if (error > 1) std::cerr << "prefix ss=" << ss << " error=" << error << '\n';
+            Check(error <= 1, "suffix changes preserve rendered prefix at fractional supersampling");
+        }
+    }
     app.SetRoot<Component>();
 }
 
@@ -308,6 +341,7 @@ int main() {
         GeometryRegression();
         TextEngineRegression();
         SupersampleRegression(app);
+        PrefixRegression(app);
         ResolutionRegression(app);
         AlphaRegression(app, cfg);
         Check(app.Init(cfg), "restore transparent regression context");

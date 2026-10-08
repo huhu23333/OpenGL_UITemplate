@@ -28,11 +28,23 @@ struct TextSize {
     float h = 0.0f;
 };
 
+float NormalizeTextSupersample(float ss) {
+    if (!std::isfinite(ss) || ss <= 0.0f) return 1.0f;
+    return std::max(1.0f, std::min(ss, 8.0f));
+}
+
+// ceil 多出的右/下透明边缘不参与缩放，保持所有文本的采样比例均为 ss。
+void DrawTextTexture(Renderer2D& renderer, Texture* tex, float x, float y,
+                     TextSize size, float ss, const Color& color) {
+    ss = NormalizeTextSupersample(ss);
+    renderer.DrawTextureSub(tex, 0, 0, size.w * ss, size.h * ss,
+                            x, y, size.w, size.h, color);
+}
+
 // ss 为文字渲染细化倍数（超采样）：以 scale*ss 的字号栅格化轮廓，绘制时缩回 scale 的逻辑尺寸。
 Texture* GetTextTexture(Renderer2D& renderer, const std::string& text, float scale, int thickness, float ss) {
     if (text.empty() || !std::isfinite(scale) || scale <= 0.0f) return nullptr;
-    if (!std::isfinite(ss) || ss <= 0.0f) ss = 1.0f;
-    ss = std::max(1.0f, std::min(ss, 8.0f));  // 与 TextEngine 的范围一致，避免缓存键发散
+    ss = NormalizeTextSupersample(ss);  // 与 TextEngine 的范围一致，避免缓存键发散
     TextEngine& eng = TextEngine::Instance();
     const float effectiveScale = scale * eng.GetResolutionScale();
     if (!std::isfinite(effectiveScale) || effectiveScale <= 0.0f) return nullptr;
@@ -89,7 +101,7 @@ void Button::OnDraw(Renderer2D& r) {
         Texture* tex = GetTextTexture(r, m_label, m_fontScale, m_fontThickness, m_textSS);
         if (tex) {
             TextSize m = MeasureText(m_label, m_fontScale, m_fontThickness);
-            r.DrawTexture(tex, (s.x - m.w) * 0.5f, (s.y - m.h) * 0.5f, m.w, m.h, m_labelColor);
+            DrawTextTexture(r, tex, (s.x - m.w) * 0.5f, (s.y - m.h) * 0.5f, m, m_textSS, m_labelColor);
         }
     }
 }
@@ -216,7 +228,7 @@ void Text::OnDraw(Renderer2D& r) {
         case VAlign::Bottom: y = s.y - m.h; break;
         default: y = 0.0f;
     }
-    r.DrawTexture(tex, x, y, m.w, m.h, m_color);
+    DrawTextTexture(r, tex, x, y, m, m_textSS, m_color);
 }
 
 // ===========================================================================
@@ -246,7 +258,7 @@ void TextBox::OnDraw(Renderer2D& r) {
         Texture* tex = GetTextTexture(r, shown, m_fontScale, m_fontThickness, m_textSS);
         if (tex) {
             TextSize m = MeasureText(shown, m_fontScale, m_fontThickness);
-            r.DrawTexture(tex, pad, (s.y - m.h) * 0.5f, m.w, m.h, col);
+            DrawTextTexture(r, tex, pad, (s.y - m.h) * 0.5f, m, m_textSS, col);
         }
     }
 

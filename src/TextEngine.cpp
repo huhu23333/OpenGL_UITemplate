@@ -86,7 +86,7 @@ bool TextEngine::Init() {
     if (!config) { FT_Done_FreeType(lib); return false; }
     FT_Face face = nullptr;
     int faceIndex = 0;
-    // 优先等宽字体（ASCII 数字等宽，保证"字符变化仅影响其后"），缺字再回退比例字体
+    // 优先 ASCII 一格、CJK 两格的字体；此处仅做初始化回退，不提供逐字缺字回退。
     for (const char* family : {"Noto Sans Mono CJK SC", "Noto Sans CJK SC", "sans-serif"}) {
         std::string path;
         if (!FindFontViaFontconfig(config, family, path, faceIndex)) continue;
@@ -146,7 +146,8 @@ static bool Shape(FT_Face face, hb_font_t* hbFont, const std::string& utf8,
     hb_buffer_add_utf8(buf, utf8.data(), (int)utf8.size(), 0, (int)utf8.size());
     hb_buffer_guess_segment_properties(buf);
     hb_buffer_set_language(buf, hb_language_from_string("zh-cn", -1));
-    // 关闭 kerning / 连字 / 上下文替换，保证"改动某个字符只影响其后"，且等宽推进不因特征变化
+    // 关闭可选 kerning / 连字 / 上下文替换，稳定独立 ASCII 字符的推进。
+    // 必需 shaping 和组合附标仍可影响同一 cluster，不能保证任意 Unicode 前缀不变。
     static const hb_feature_t kStableFeatures[] = {
         {HB_TAG('k', 'e', 'r', 'n'), 0, HB_FEATURE_GLOBAL_START, HB_FEATURE_GLOBAL_END},
         {HB_TAG('l', 'i', 'g', 'a'), 0, HB_FEATURE_GLOBAL_START, HB_FEATURE_GLOBAL_END},
@@ -195,8 +196,8 @@ static bool Layout(FT_Face face, hb_font_t* font, const std::string& utf8,
                    float sizePx, int thickness, ShapeResult& s) {
     if (!ValidSize(sizePx) || thickness > 1024 || !Shape(face, font, utf8, sizePx, s)) return false;
     FT_Pos strength = EmboldenStrength(sizePx, thickness);
-    // 固定留白（内容无关）：覆盖负 bearing / 合成加粗 / 越界 / 滤波边缘。
-    // 取整多余空间放到右/下，左/上原点固定，保证"改动某字符只影响其后"。
+    // 基础留白只依赖字号和粗细，覆盖合成加粗及滤波边缘。
+    // 取整多余空间放到右/下；仅左/上实际越界时才需要移动绘制原点。
     float padX = kMarginLogical + (float)strength / 64.0f;
     float padY = kMarginLogical + (float)strength / 64.0f;
     // 扫描 ink bounds 仅作越界检查：极少数越界字形才扩展留白（不裁剪），常规字符串保持固定。
@@ -213,14 +214,17 @@ static bool Layout(FT_Face face, hb_font_t* font, const std::string& utf8,
         top = std::max(top, s.penY[i] + box.yMax / 64.0f);
         bottom = std::min(bottom, s.penY[i] + box.yMin / 64.0f);
     }
-    padX += std::max(-left, right - s.advance);
-    padY += std::max(top - s.ascent, s.descent - bottom);
+    // 右/下越界只增大右/下留白，不能反过来移动未改变的前缀或基线。
+    float padRight = padX + (right - s.advance);
+    float padBottom = padY + (s.descent - bottom);
+    padX += -left;
+    padY += top - s.ascent;
     s.metrics.advance = s.advance;
-    s.metrics.width = std::ceil(padX + s.advance + padX);
-    s.metrics.height = std::ceil(padY + (s.ascent - s.descent) + padY);
+    s.metrics.width = std::ceil(padX + s.advance + padRight);
+    s.metrics.height = std::ceil(padY + (s.ascent - s.descent) + padBottom);
     if (s.metrics.width <= 0 || s.metrics.height <= 0 ||
         double(s.metrics.width) * s.metrics.height > kMaxPixels) return false;
-    // 固定左原点与基线（内容无关），不再从整串纹理尺寸反推。
+    // 原点与基线不从整串纹理尺寸反推；左/上越界仍需平移以避免裁剪。
     s.originX = padX;
     s.baselineY = padY + s.ascent;
     return true;
