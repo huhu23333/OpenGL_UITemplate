@@ -214,6 +214,7 @@ static bool Layout(FT_Face face, hb_font_t* font, const std::string& utf8,
 }
 
 TextMetrics TextEngine::Measure(const std::string& utf8, float sizePx, int thickness) const {
+    sizePx *= m_resolutionScale;  // 分辨率自缩放
     if (!m_face || !ValidSize(sizePx) || utf8.empty()) return {};
     std::lock_guard<std::mutex> lock(g_textMutex);
     using Key = std::tuple<std::string, float, int>;
@@ -232,6 +233,7 @@ TextMetrics TextEngine::Measure(const std::string& utf8, float sizePx, int thick
 }
 
 float TextEngine::CaretPosition(const std::string& utf8, size_t byteOffset, float sizePx, int thickness) const {
+    sizePx *= m_resolutionScale;  // 分辨率自缩放
     if (!m_face || !ValidSize(sizePx) || utf8.empty()) return 0.0f;
     std::lock_guard<std::mutex> lock(g_textMutex);
     // TextBox 一次点击会查询多个字节边界；保留最后一次完整排版。
@@ -269,6 +271,7 @@ float TextEngine::CaretPosition(const std::string& utf8, size_t byteOffset, floa
 }
 
 cv::Mat TextEngine::Rasterize(const std::string& utf8, float sizePx, int thickness, float ss) const {
+    sizePx *= m_resolutionScale;  // 分辨率自缩放
     if (!m_face || utf8.empty() || !ValidSize(sizePx)) return cv::Mat();
     if (!std::isfinite(ss) || ss <= 0.0f) ss = 1.0f;
     ss = std::max(1.0f, std::min(ss, 8.0f));
