@@ -79,12 +79,12 @@ struct MouseCaptureBox : Component {
             float ex = cx + std::cos(angle) * len;
             float ey = cy + std::sin(angle) * len;
             Color arrow = {1.0f, 0.85f, 0.2f, 1.0f};
-            r.DrawLine(cx, cy, ex, ey, 5.0f, arrow);
-            float head = 16.0f;
+            r.DrawLine(cx, cy, ex, ey, 2.5f, arrow);
+            float head = maxLen * 0.124f;   // 箭头头部尺寸随长度（随分辨率）缩放
             float a1 = angle + 2.6f;  // ~150°
             float a2 = angle - 2.6f;
-            r.DrawLine(ex, ey, ex + std::cos(a1) * head, ey + std::sin(a1) * head, 4.0f, arrow);
-            r.DrawLine(ex, ey, ex + std::cos(a2) * head, ey + std::sin(a2) * head, 4.0f, arrow);
+            r.DrawLine(ex, ey, ex + std::cos(a1) * head, ey + std::sin(a1) * head, 2.0f, arrow);
+            r.DrawLine(ex, ey, ex + std::cos(a2) * head, ey + std::sin(a2) * head, 2.0f, arrow);
         }
     }
 
@@ -204,7 +204,7 @@ int main(int argc, char** argv) {
     // 字号与线宽随画布分辨率等比缩放（与布局的比例缩放保持一致）
     TextEngine::Instance().SetResolutionScale((float)cfg.renderHeight / REF_H * 0.5f);
     // 箭头粗细、yolo 框边框、组件描边等线宽也按同一因子缩放
-    app.GetRenderer()->SetStrokeScale((float)cfg.renderHeight / REF_H * 0.5f);
+    app.GetRenderer()->SetStrokeScale((float)cfg.renderHeight / REF_H);
 
     // ===== 根容器 =====
     auto root = std::make_unique<Component>();
