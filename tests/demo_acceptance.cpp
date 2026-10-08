@@ -81,9 +81,9 @@ int main(int argc, char** argv) {
             }
             return tip;
         };
-        int quarterTip = arrowTip(1500), fullTip = arrowTip(6000), saturatedTip = arrowTip(12000);
+        int quarterTip = arrowTip(15000), fullTip = arrowTip(60000), saturatedTip = arrowTip(120000);
         Check(std::abs(quarterTip - 272) <= 2 && std::abs(fullTip - 369) <= 2 && saturatedTip == fullTip,
-              "6000 px/s arrow normalization: quarter, full and saturation");
+              "60000 px/s arrow normalization: quarter, full and saturation");
         Check(arrowTip(0) == -1, "stationary speed draws no arrow");
         auto capture = [&]() {
             if (window) {

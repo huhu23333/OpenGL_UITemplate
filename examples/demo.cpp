@@ -71,7 +71,7 @@ struct MouseCaptureBox : Component {
         float cx = s.x * 0.5f;
         float cy = s.y * 0.5f;
         float maxLen = std::min(s.x, s.y) * 0.38f;
-        float t = speed / 6000.0f;             // 归一化（6000 px/s 视为满长，避免轻微移动就到限位）
+        float t = speed / 60000.0f;             // 归一化（60000 px/s 视为满长，避免轻微移动就到限位）
         if (t > 1.0f) t = 1.0f;
         float len = t * maxLen;
         r.FillRect(cx - 3.0f, cy - 3.0f, 6.0f, 6.0f, {1.0f, 1.0f, 1.0f, 1.0f});
@@ -188,8 +188,8 @@ int main(int argc, char** argv) {
     }
 
     UIApplication::Config cfg;
-    cfg.renderWidth = 3840;
-    cfg.renderHeight = 2160;
+    cfg.renderWidth = 1920;
+    cfg.renderHeight = 1080;
     cfg.showWindow = !headless;
     cfg.windowWidth = 1280;
     cfg.windowHeight = 720;
@@ -202,7 +202,9 @@ int main(int argc, char** argv) {
     }
 
     // 字号与线宽随画布分辨率等比缩放（与布局的比例缩放保持一致）
-    TextEngine::Instance().SetResolutionScale((float)cfg.renderWidth / REF_W);
+    TextEngine::Instance().SetResolutionScale((float)cfg.renderHeight / REF_H * 0.5f);
+    // 箭头粗细、yolo 框边框、组件描边等线宽也按同一因子缩放
+    app.GetRenderer()->SetStrokeScale((float)cfg.renderHeight / REF_H * 0.5f);
 
     // ===== 根容器 =====
     auto root = std::make_unique<Component>();

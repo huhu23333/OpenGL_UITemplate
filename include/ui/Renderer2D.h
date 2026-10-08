@@ -54,6 +54,10 @@ public:
     // ---- 透明度：影响后续所有绘制顶点的 alpha（乘性）----
     void SetOpacity(float a);  // a ∈ [0,1]，=1 表示不透明
 
+    // ---- 线宽缩放：所有 StrokeRect / DrawLine 的厚度乘以该因子（默认 1，用于分辨率自缩放）----
+    void SetStrokeScale(float s) { m_strokeScale = std::isfinite(s) && s > 0.0f ? s : 1.0f; }
+    float GetStrokeScale() const { return m_strokeScale; }
+
     // ---- 基本绘制 ----
     void FillRect(float x, float y, float w, float h, const Color& c);
     // 描边：在矩形内部绘制指定厚度的边框（厚度<=0 时不绘制）
@@ -104,6 +108,7 @@ private:
     std::vector<Vertex> m_verts;
     const Texture* m_boundTex = nullptr;
     float  m_opacity = 1.0f;
+    float  m_strokeScale = 1.0f;
 
     float m_transX = 0.0f;
     float m_transY = 0.0f;

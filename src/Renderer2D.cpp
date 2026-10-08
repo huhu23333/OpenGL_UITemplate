@@ -302,6 +302,7 @@ void Renderer2D::FillRect(float x, float y, float w, float h, const Color& c) {
 
 void Renderer2D::StrokeRect(float x, float y, float w, float h, float t, const Color& c) {
     if (t <= 0.0f || w <= 0.0f || h <= 0.0f) return;
+    t *= m_strokeScale;  // 线宽随分辨率缩放
     t = std::min(t, std::min(w, h) * 0.5f);
     // 上、下、左、右四条边
     FillRect(x, y, w, t, c);                 // top
@@ -313,6 +314,7 @@ void Renderer2D::StrokeRect(float x, float y, float w, float h, float t, const C
 void Renderer2D::DrawLine(float x0, float y0, float x1, float y1, float thickness, const Color& c) {
     if (!std::isfinite(thickness) || thickness <= 0.0f ||
         !std::isfinite(x0) || !std::isfinite(y0) || !std::isfinite(x1) || !std::isfinite(y1)) return;
+    thickness *= m_strokeScale;  // 线宽随分辨率缩放
     float dx = x1 - x0, dy = y1 - y0;
     float len = std::hypot(dx, dy);
     if (!std::isfinite(len) || len < 1e-6f) return;
