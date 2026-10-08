@@ -86,7 +86,8 @@ bool TextEngine::Init() {
     if (!config) { FT_Done_FreeType(lib); return false; }
     FT_Face face = nullptr;
     int faceIndex = 0;
-    for (const char* family : {"Noto Sans CJK SC", "sans-serif"}) {
+    // 优先等宽字体（ASCII 数字等宽，保证"字符变化仅影响其后"），缺字再回退比例字体
+    for (const char* family : {"Noto Sans Mono CJK SC", "Noto Sans CJK SC", "sans-serif"}) {
         std::string path;
         if (!FindFontViaFontconfig(config, family, path, faceIndex)) continue;
         if (FT_New_Face(lib, path.c_str(), faceIndex, &face) != 0) continue;
@@ -145,7 +146,14 @@ static bool Shape(FT_Face face, hb_font_t* hbFont, const std::string& utf8,
     hb_buffer_add_utf8(buf, utf8.data(), (int)utf8.size(), 0, (int)utf8.size());
     hb_buffer_guess_segment_properties(buf);
     hb_buffer_set_language(buf, hb_language_from_string("zh-cn", -1));
-    hb_shape(hbFont, buf, nullptr, 0);
+    // 关闭 kerning / 连字 / 上下文替换，保证"改动某个字符只影响其后"，且等宽推进不因特征变化
+    static const hb_feature_t kStableFeatures[] = {
+        {HB_TAG('k', 'e', 'r', 'n'), 0, HB_FEATURE_GLOBAL_START, HB_FEATURE_GLOBAL_END},
+        {HB_TAG('l', 'i', 'g', 'a'), 0, HB_FEATURE_GLOBAL_START, HB_FEATURE_GLOBAL_END},
+        {HB_TAG('c', 'l', 'i', 'g'), 0, HB_FEATURE_GLOBAL_START, HB_FEATURE_GLOBAL_END},
+        {HB_TAG('c', 'a', 'l', 't'), 0, HB_FEATURE_GLOBAL_START, HB_FEATURE_GLOBAL_END},
+    };
+    hb_shape(hbFont, buf, kStableFeatures, 4);
     if (!hb_buffer_allocation_successful(buf)) { hb_buffer_destroy(buf); return false; }
 
     unsigned count = 0;
@@ -186,8 +194,13 @@ static FT_Pos EmboldenStrength(float sizePx, int thickness) {
 static bool Layout(FT_Face face, hb_font_t* font, const std::string& utf8,
                    float sizePx, int thickness, ShapeResult& s) {
     if (!ValidSize(sizePx) || thickness > 1024 || !Shape(face, font, utf8, sizePx, s)) return false;
-    float left = 0.0f, right = s.advance, top = s.ascent, bottom = s.descent;
     FT_Pos strength = EmboldenStrength(sizePx, thickness);
+    // 固定留白（内容无关）：覆盖负 bearing / 合成加粗 / 越界 / 滤波边缘。
+    // 取整多余空间放到右/下，左/上原点固定，保证"改动某字符只影响其后"。
+    float padX = kMarginLogical + (float)strength / 64.0f;
+    float padY = kMarginLogical + (float)strength / 64.0f;
+    // 扫描 ink bounds 仅作越界检查：极少数越界字形才扩展留白（不裁剪），常规字符串保持固定。
+    float left = 0.0f, right = s.advance, top = s.ascent, bottom = s.descent;
     for (size_t i = 0; i < s.glyphIds.size(); ++i) {
         if (FT_Load_Glyph(face, s.glyphIds[i], FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING) != 0) return false;
         if (face->glyph->format != FT_GLYPH_FORMAT_OUTLINE) return false;
@@ -200,16 +213,16 @@ static bool Layout(FT_Face face, hb_font_t* font, const std::string& utf8,
         top = std::max(top, s.penY[i] + box.yMax / 64.0f);
         bottom = std::min(bottom, s.penY[i] + box.yMin / 64.0f);
     }
-    float padX = kMarginLogical + std::max(-left, right - s.advance);
-    float padY = kMarginLogical + std::max(top - s.ascent, s.descent - bottom);
+    padX += std::max(-left, right - s.advance);
+    padY += std::max(top - s.ascent, s.descent - bottom);
     s.metrics.advance = s.advance;
-    s.metrics.width = std::ceil(s.advance + 2.0f * padX);
-    s.metrics.height = std::ceil(s.ascent - s.descent + 2.0f * padY);
+    s.metrics.width = std::ceil(padX + s.advance + padX);
+    s.metrics.height = std::ceil(padY + (s.ascent - s.descent) + padY);
     if (s.metrics.width <= 0 || s.metrics.height <= 0 ||
         double(s.metrics.width) * s.metrics.height > kMaxPixels) return false;
-    // 对称留白使组件可由 (width - advance) / 2 找到真正的 pen 原点。
-    s.originX = (s.metrics.width - s.advance) * 0.5f;
-    s.baselineY = (s.metrics.height - (s.ascent - s.descent)) * 0.5f + s.ascent;
+    // 固定左原点与基线（内容无关），不再从整串纹理尺寸反推。
+    s.originX = padX;
+    s.baselineY = padY + s.ascent;
     return true;
 }
 
