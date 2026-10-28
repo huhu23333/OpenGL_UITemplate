@@ -4,6 +4,7 @@
 namespace ui {
 
 const InputState* Component::s_globalInput = nullptr;
+uint64_t Component::s_layoutEpoch = 0;
 
 Component::Component() = default;
 Component::~Component() = default;
@@ -46,8 +47,28 @@ void Component::Layout(const Vec2& parentSize, const Vec2& renderOrigin, const R
 // ---------------------------------------------------------------------------
 void Component::Render(Renderer2D& r, const Rect& clip) {
     if (!m_visible) return;
-    Rect myClip = m_abs.Intersect(clip);
-    if (!myClip.IsEmpty()) {
+    const Rect myClip = m_abs.Intersect(clip);
+    const Rect childClip = ChildClip(clip);
+    const bool drawSelf = !myClip.IsEmpty();
+    const bool drawChildren = !childClip.IsEmpty() && !m_children.empty();
+    if (!drawSelf && !drawChildren) return;
+
+    // 自身与子组件裁剪矩形相同：只切一次 scissor，避免第二次 push/pop 提交批次。
+    if (drawSelf && drawChildren &&
+        myClip.x == childClip.x && myClip.y == childClip.y &&
+        myClip.w == childClip.w && myClip.h == childClip.h) {
+        r.PushScissor(myClip.x, myClip.y, myClip.w, myClip.h);
+        r.PushTranslate(m_abs.x, m_abs.y);
+        r.SetOpacity(m_opacity);
+        OnDraw(r);
+        r.SetOpacity(1.0f);
+        r.PopTranslate();
+        for (auto& c : m_children) c->Render(r, childClip);
+        r.PopScissor();
+        return;
+    }
+
+    if (drawSelf) {
         r.PushScissor(myClip.x, myClip.y, myClip.w, myClip.h);
         r.PushTranslate(m_abs.x, m_abs.y);
         r.SetOpacity(m_opacity);
@@ -57,8 +78,7 @@ void Component::Render(Renderer2D& r, const Rect& clip) {
         r.PopScissor();
     }
 
-    Rect childClip = ChildClip(clip);
-    if (childClip.IsEmpty()) return;
+    if (!drawChildren) return;
     r.PushScissor(childClip.x, childClip.y, childClip.w, childClip.h);
     for (auto& c : m_children) {
         c->Render(r, childClip);

@@ -376,17 +376,23 @@ ImageDisplay::ImageDisplay() {
 
 ImageDisplay::~ImageDisplay() = default;
 
-void ImageDisplay::SetImage(const cv::Mat& img) {
-    m_dragging = false;
-    SetMouseCapture(false);
-    auto tex = std::make_unique<Texture>();
-    if (!tex->Upload(img)) {
+bool ImageDisplay::UpdateImage(const cv::Mat& img) {
+    // 复用同一个 Texture 对象：尺寸不变时走 glTexSubImage2D，避免逐帧 Gen/Delete 纹理。
+    // 不重置拖拽/框选状态：图像数据更新与交互状态无关。
+    if (!m_tex) m_tex = std::make_unique<Texture>();
+    if (!m_tex->Upload(img)) {
         m_image.release();
         m_tex.reset();
-        return;
+        return false;
     }
+    m_image = img;  // 浅引用（共享缓冲），逐帧更新时省掉一次整图拷贝
+    return true;
+}
+
+void ImageDisplay::SetImage(const cv::Mat& img) {
+    // 深拷贝语义：GetImage() 返回的内容与调用方解耦；逐帧更新请用 UpdateImage()。
+    if (!UpdateImage(img)) return;
     m_image = img.clone();
-    m_tex = std::move(tex);
 }
 
 Rect ImageDisplay::GetContentRect() const {

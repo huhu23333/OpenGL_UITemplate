@@ -66,21 +66,10 @@ target_link_libraries(ui PUBLIC
 )
 
 # ===== 应用实例 =====
-add_executable(demo examples/demo.cpp)
-target_link_libraries(demo PRIVATE ui)
-
-# ===== 回归测试（可选）=====
-option(UI_BUILD_TESTS "Build regression tests" ON)
-if(UI_BUILD_TESTS)
-    enable_testing()
-    add_executable(ui_offscreen_regression tests/review_regression.cpp)
-    target_link_libraries(ui_offscreen_regression PRIVATE ui)
-    add_test(NAME ui_offscreen_regression COMMAND ui_offscreen_regression)
-    add_executable(ui_demo_acceptance tests/demo_acceptance.cpp)
-    target_link_libraries(ui_demo_acceptance PRIVATE ui)
-    add_test(NAME ui_demo_acceptance COMMAND ui_demo_acceptance)
-    if(UNIX)
-        add_executable(ui_window_regression tests/window_regression.cpp)
-        target_link_libraries(ui_window_regression PRIVATE ui ${CMAKE_DL_LIBS})
-    endif()
+# 测试与性能基准位于独立的 tests/ 工程（cmake -S tests -B build-tests），
+# 不随本工程一起构建。UI_BUILD_DEMO=OFF 时本工程只产出静态库 ui。
+option(UI_BUILD_DEMO "Build demo executable" ON)
+if(UI_BUILD_DEMO)
+    add_executable(demo examples/demo.cpp)
+    target_link_libraries(demo PRIVATE ui)
 endif()

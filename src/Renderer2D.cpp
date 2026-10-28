@@ -125,6 +125,8 @@ void Renderer2D::Shutdown() {
     if (m_whiteTex) { glDeleteTextures(1, &m_whiteTex); m_whiteTex = 0; }
     m_verts.clear();
     m_boundTex = nullptr;
+    m_appliedScissor.valid = false;
+    m_projDirty = true;
     m_textCache.clear();
     m_transStack.clear();
     m_scissorStack.clear();
@@ -144,6 +146,10 @@ void Renderer2D::BeginFrame(int width, int height) {
     glDisable(GL_STENCIL_TEST);
     glDisable(GL_CULL_FACE);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    // 程序 / VAO / VBO 在整个帧内保持不变：每帧绑定一次，draw call 内不再重复绑定
+    glUseProgram(m_program);
+    glBindVertexArray(m_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
     m_vpW = width;
     m_vpH = height;
     glViewport(0, 0, width, height);
@@ -155,6 +161,8 @@ void Renderer2D::BeginFrame(int width, int height) {
     m_transStack.clear();
     m_scissorStack.clear();
     m_scissorStack.push_back({false, 0, 0, 0, 0});
+    m_projDirty = true;
+    m_appliedScissor.valid = false;  // 视口变化后 GL scissor 状态需重新确认
     ApplyScissor(m_scissorStack.back());
 }
 
@@ -166,44 +174,48 @@ void Renderer2D::Flush() {
     if (m_verts.empty()) return;
     if (m_vpW <= 0 || m_vpH <= 0) { m_verts.clear(); return; }
 
-    glUseProgram(m_program);
-    glBindVertexArray(m_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+    // BeginFrame 已绑定程序 / VAO / VBO，这里只更新顶点数据
     glBufferData(GL_ARRAY_BUFFER,
                  (GLsizeiptr)(m_verts.size() * sizeof(Vertex)),
                  m_verts.data(), GL_STREAM_DRAW);
 
-    // 正交投影（列主序）
-    float proj[16];
-    std::memset(proj, 0, sizeof(proj));
-    proj[0] = 2.0f / (float)m_vpW;
-    proj[5] = -2.0f / (float)m_vpH;
-    proj[10] = 1.0f;
-    proj[12] = -1.0f;
-    proj[13] = 1.0f;
-    proj[15] = 1.0f;
-    glUniformMatrix4fv(m_uProj, 1, GL_FALSE, proj);
+    if (m_projDirty) {
+        // 正交投影（列主序）；仅视口变化时重传，避免每次 draw call 都上传 uniform
+        float proj[16];
+        std::memset(proj, 0, sizeof(proj));
+        proj[0] = 2.0f / (float)m_vpW;
+        proj[5] = -2.0f / (float)m_vpH;
+        proj[10] = 1.0f;
+        proj[12] = -1.0f;
+        proj[13] = 1.0f;
+        proj[15] = 1.0f;
+        glUniformMatrix4fv(m_uProj, 1, GL_FALSE, proj);
+        glUniform1i(m_uTex, 0);
+        m_projDirty = false;
+    }
 
     GLuint tex = m_boundTex ? m_boundTex->Id() : m_whiteTex;
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, tex);
-    glUniform1i(m_uTex, 0);
 
     glDrawArrays(GL_TRIANGLES, 0, (GLsizei)m_verts.size());
+    ++m_stats.drawCalls;
+    m_stats.vertices += (long long)m_verts.size();
 
-    glBindVertexArray(0);
-    m_verts.clear();
+    m_verts.clear();  // VAO 保持绑定，下一帧 BeginFrame 重新绑定
 }
 
 void Renderer2D::BindTexture(const Texture* tex) {
     if (tex != m_boundTex) {
         Flush();
         m_boundTex = tex;
+        ++m_stats.textureBinds;
     }
 }
 
 void Renderer2D::PushQuad(const Vertex v[4]) {
     // 逆时针两个三角形：0-1-2, 0-2-3
+    ++m_stats.quads;
     const int idx[6] = {0, 1, 2, 0, 2, 3};
     for (int i : idx) {
         Vertex vv = v[i];
@@ -217,49 +229,76 @@ void Renderer2D::PushQuad(const Vertex v[4]) {
 // ---------------------------------------------------------------------------
 // scissor
 // ---------------------------------------------------------------------------
-void Renderer2D::ApplyScissor(const ScissorState& s) {
-    if (!s.enabled) {
-        glDisable(GL_SCISSOR_TEST);
-        return;
-    }
-    glEnable(GL_SCISSOR_TEST);
+bool Renderer2D::ComputeScissor(const ScissorState& s, int& x, int& y, int& w, int& h) const {
+    if (!s.enabled) return false;
     // 按像素中心确定覆盖范围，分别换算边界，避免浮点宽高截断导致漏裁剪。
     Rect clipped = Rect(s.x, s.y, s.w, s.h).Intersect(Rect(0, 0, (float)m_vpW, (float)m_vpH));
     if (clipped.IsEmpty() || !std::isfinite(clipped.x) || !std::isfinite(clipped.y) ||
         !std::isfinite(clipped.w) || !std::isfinite(clipped.h)) {
-        glScissor(0, 0, 0, 0);
-        return;
+        x = y = w = h = 0;
+        return true;
     }
     int x0 = (int)std::ceil(clipped.x - 0.5f);
     int y0 = (int)std::ceil(clipped.y - 0.5f);
     int x1 = (int)std::ceil(clipped.Right() - 0.5f);
     int y1 = (int)std::ceil(clipped.Bottom() - 0.5f);
-    glScissor(x0, m_vpH - y1, std::max(0, x1 - x0), std::max(0, y1 - y0));
+    x = x0;
+    y = m_vpH - y1;
+    w = std::max(0, x1 - x0);
+    h = std::max(0, y1 - y0);
+    return true;
+}
+
+bool Renderer2D::ScissorIsCurrent(const ScissorState& s) const {
+    int x = 0, y = 0, w = 0, h = 0;
+    const bool enabled = ComputeScissor(s, x, y, w, h);
+    if (!m_appliedScissor.valid) return false;
+    if (m_appliedScissor.enabled != enabled) return false;
+    if (!enabled) return true;
+    return m_appliedScissor.x == x && m_appliedScissor.y == y &&
+           m_appliedScissor.w == w && m_appliedScissor.h == h;
+}
+
+void Renderer2D::ApplyScissor(const ScissorState& s) {
+    if (ScissorIsCurrent(s)) { ++m_stats.scissorSkips; return; }
+    int x = 0, y = 0, w = 0, h = 0;
+    const bool enabled = ComputeScissor(s, x, y, w, h);
+    if (enabled) {
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(x, y, w, h);
+    } else {
+        glDisable(GL_SCISSOR_TEST);
+    }
+    m_appliedScissor = {true, enabled, x, y, w, h};
+    ++m_stats.scissorChanges;
 }
 
 void Renderer2D::PushScissor(float x, float y, float w, float h) {
-    Flush();
     Rect clip(x, y, w, h);
     if (!m_scissorStack.empty() && m_scissorStack.back().enabled) {
         const auto& s = m_scissorStack.back();
         clip = clip.Intersect(Rect(s.x, s.y, s.w, s.h));
     }
-    m_scissorStack.push_back({true, clip.x, clip.y, clip.w, clip.h});
-    ApplyScissor(m_scissorStack.back());
+    ScissorState st{true, clip.x, clip.y, clip.w, clip.h};
+    if (!ScissorIsCurrent(st)) Flush();  // 仅状态真的变化时才提交当前批次
+    m_scissorStack.push_back(st);
+    ApplyScissor(st);
 }
 
 void Renderer2D::PopScissor() {
-    Flush();
     if (m_scissorStack.size() > 1) {
         m_scissorStack.pop_back();
-        ApplyScissor(m_scissorStack.back());
+        const ScissorState& st = m_scissorStack.back();
+        if (!ScissorIsCurrent(st)) Flush();
+        ApplyScissor(st);
     }
 }
 
 void Renderer2D::DisableScissor() {
-    Flush();
-    m_scissorStack.push_back({false, 0, 0, 0, 0});
-    ApplyScissor(m_scissorStack.back());
+    ScissorState st{false, 0.0f, 0.0f, 0.0f, 0.0f};
+    if (!ScissorIsCurrent(st)) Flush();
+    m_scissorStack.push_back(st);
+    ApplyScissor(st);
 }
 
 // ---------------------------------------------------------------------------
@@ -352,9 +391,15 @@ void Renderer2D::DrawTextureSub(const Texture* tex,
     float th = (float)tex->Height();
     float u0 = srcX / tw;
     float u1 = (srcX + srcW) / tw;
-    // v=1 对应顶部（srcY=0），v=0 对应底部
-    float vTop = 1.0f - srcY / th;
-    float vBot = 1.0f - (srcY + srcH) / th;
+    // 上传纹理（TopDown）行 0 = 图像顶部；FBO 纹理（v=1=顶部）按 GL 约定采样。
+    float vTop, vBot;
+    if (tex->TopDown()) {
+        vTop = srcY / th;
+        vBot = (srcY + srcH) / th;
+    } else {
+        vTop = 1.0f - srcY / th;
+        vBot = 1.0f - (srcY + srcH) / th;
+    }
 
     Vertex v[4] = {
         {dstX,         dstY,         u0, vTop, tint.r, tint.g, tint.b, tint.a},
@@ -373,16 +418,18 @@ void Renderer2D::PushViewport(int width, int height) {
     ViewportState s;
     s.w = m_vpW;
     s.h = m_vpH;
-    s.scissors = m_scissorStack;
-    s.translations = m_transStack;
+    s.scissors = std::move(m_scissorStack);   // 移走而非复制，避免每帧分配
+    s.translations = std::move(m_transStack);
     s.opacity = m_opacity;
     s.transX = m_transX;
     s.transY = m_transY;
-    m_vpStack.push_back(s);
+    m_vpStack.push_back(std::move(s));
 
     m_vpW = width;
     m_vpH = height;
     glViewport(0, 0, width, height);
+    m_projDirty = true;
+    m_appliedScissor.valid = false;  // scissor 的 GL y 坐标依赖视口高度
     m_scissorStack.clear();
     m_scissorStack.push_back({false, 0, 0, 0, 0});
     ApplyScissor(m_scissorStack.back());
@@ -400,6 +447,8 @@ void Renderer2D::PopViewport() {
     m_vpW = s.w;
     m_vpH = s.h;
     glViewport(0, 0, s.w, s.h);
+    m_projDirty = true;
+    m_appliedScissor.valid = false;
     m_scissorStack.clear();
     m_scissorStack = std::move(s.scissors);
     m_transStack = std::move(s.translations);

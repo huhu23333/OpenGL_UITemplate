@@ -58,6 +58,18 @@ public:
     void SetStrokeScale(float s) { m_strokeScale = std::isfinite(s) && s > 0.0f ? s : 1.0f; }
     float GetStrokeScale() const { return m_strokeScale; }
 
+    // ---- 绘制统计（ResetStats 后累计，供性能分析；不影响绘制行为）----
+    struct Stats {
+        int drawCalls = 0;       // glDrawArrays 次数
+        int quads = 0;           // 四边形数
+        int textureBinds = 0;    // 纹理切换次数
+        int scissorChanges = 0;  // 实际下发到 GL 的 scissor 状态切换
+        int scissorSkips = 0;    // 状态未变而跳过的 scissor 调用
+        long long vertices = 0;  // 顶点数
+    };
+    const Stats& GetStats() const { return m_stats; }
+    void ResetStats() { m_stats = Stats{}; }
+
     // ---- 基本绘制 ----
     void FillRect(float x, float y, float w, float h, const Color& c);
     // 描边：在矩形内部绘制指定厚度的边框（厚度<=0 时不绘制）
@@ -105,6 +117,7 @@ private:
     GLint  m_uUseTex = -1;
 
     TextCacheMap m_textCache;
+    Stats m_stats;
     std::vector<Vertex> m_verts;
     const Texture* m_boundTex = nullptr;
     float  m_opacity = 1.0f;
@@ -124,6 +137,15 @@ private:
     };
     std::vector<ScissorState> m_scissorStack;
 
+    // 已下发到 GL 的 scissor（像素坐标）；相同则跳过 glScissor/glEnable 与批次提交
+    struct AppliedScissor {
+        bool valid = false;
+        bool enabled = false;
+        int x = 0, y = 0, w = 0, h = 0;
+    };
+    AppliedScissor m_appliedScissor;
+    bool m_projDirty = true;  // 视口变化时投影矩阵需重传
+
     // 视口栈（保存宽高 + 当时的 scissor 状态 + 平移，供 Push/PopViewport 恢复）
     struct ViewportState {
         int w = 0, h = 0;
@@ -135,6 +157,9 @@ private:
     };
     std::vector<ViewportState> m_vpStack;
 
+    // 计算目标 scissor 的 GL 像素参数；返回是否启用裁剪
+    bool ComputeScissor(const ScissorState& s, int& x, int& y, int& w, int& h) const;
+    bool ScissorIsCurrent(const ScissorState& s) const;
     void ApplyScissor(const ScissorState& s);
 };
 

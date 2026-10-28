@@ -11,6 +11,7 @@
 #include <GLES3/gl3.h>
 #include <opencv2/core.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -59,8 +60,11 @@ public:
     }
 
     // ---- 帧循环 ----
-    void RunFrame();          // 输入 → 布局 → 离屏渲染 → 输出 → 呈现
+    void RunFrame();          // 输入 → 布局 → 离屏渲染 → 呈现（帧读回按需触发）
     void RenderOffscreen();   // 仅布局 + 离屏渲染（不处理输入/呈现）
+    // 强制下一次 RunFrame/RenderOffscreen 重新做整树布局。
+    // 仅在自定义组件于几何 setter 之外修改了影响布局的状态时需要调用。
+    void InvalidateLayout() { m_layoutValid = false; }
     bool ShouldClose() const;
     bool IsHeadless() const { return m_ctx ? m_ctx->IsHeadless() : true; }
 
@@ -81,6 +85,26 @@ public:
     Renderer2D* GetRenderer() { return m_renderer.get(); }
     const InputState& GetInput() const { return m_input; }
 
+    // ---- 性能统计 ----
+    // 最近一次 RunFrame / RenderOffscreen 的分阶段耗时与绘制计数（诊断用，不影响行为）。
+    // 读取帧像素（GetFrame/GetFrameBGRA）的耗时记录在 captureMs。
+    struct FrameStats {
+        double buildInputMs = 0.0;  // 事件轮询 + 输入构建
+        double layoutMs = 0.0;      // 本步内全部布局调用累计（含输入分发中的补布局）
+        double dispatchMs = 0.0;    // 输入分发
+        double renderMs = 0.0;      // 离屏渲染（GL 状态保存 + 绘制 + 状态恢复）
+        double captureMs = 0.0;     // 最近一次帧读回 + 格式转换
+        double presentMs = 0.0;     // 窗口呈现（含 vsync 等待）
+        int    layoutCalls = 0;     // 本步布局次数（布局去重后应 ≤ 1）
+        int    drawCalls = 0;       // glDrawArrays 次数
+        int    quads = 0;           // 四边形数
+        int    textureBinds = 0;    // 纹理切换次数
+        int    scissorChanges = 0;  // 实际生效的 scissor 切换
+        int    scissorSkips = 0;    // 被跳过的冗余 scissor 切换
+        long long vertices = 0;     // 顶点数
+    };
+    const FrameStats& GetFrameStats() const { return m_stats; }
+
     // 组件树中当前键盘焦点组件
     Component* GetFocus() const { return IsActive(m_focus, m_focusLife) ? m_focus : nullptr; }
     void SetFocus(Component* c);
@@ -89,6 +113,11 @@ private:
     void BuildInput();       // 从 context.RawInput 构建 m_input（含坐标变换）
     void DispatchInput();    // 命中测试 + 事件分发
     void Present();          // letterbox 呈现（显示模式）
+    void EnsureLayout();     // 布局去重：仅当布局代数变化时重算整棵树
+    void RenderOffscreenImpl();  // 假定布局已就绪的离屏渲染
+    void CaptureFrame() const;   // 懒读回：GetFrame/GetFrameBGRA 首次访问时读当前离屏帧
+    void ResetStepStats();
+    void PullRendererStats();
 
     // 窗口坐标 → 图像坐标（letterbox 逆变换）
     void WindowToImage(double wx, double wy, float& ix, float& iy, bool& inside);
@@ -100,7 +129,16 @@ private:
 
     GLuint m_fbo = 0;
     std::unique_ptr<Texture> m_offscreenTex;
-    cv::Mat m_frameBGRA;     // 缓存最近一帧（BGRA）
+
+    // 帧读回缓存（懒生成：只有调用 GetFrame/GetFrameBGRA 时才真正 glReadPixels）
+    mutable cv::Mat m_frameBGRA;   // 最近一帧（BGRA，直通 alpha）
+    mutable cv::Mat m_readback;    // 读回暂存（RGBA）
+    mutable bool m_frameDirty = false;   // 离屏内容比缓存新
+    mutable FrameStats m_stats;
+
+    // 布局去重状态
+    bool m_layoutValid = false;
+    uint64_t m_layoutEpoch = 0;
 
     InputState m_input;
 

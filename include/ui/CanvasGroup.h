@@ -38,8 +38,9 @@ public:
     // 滚动偏移（视口在虚拟画布上的位置，像素）
     void SetScrollOffset(float dx, float dy);
     void GetScrollOffset(float& dx, float& dy) const { dx = m_scrollX; dy = m_scrollY; }
-    void SetScrollX(float x) { m_scrollX = x; ClampScroll(); }
-    void SetScrollY(float y) { m_scrollY = y; ClampScroll(); }
+    // 滚动偏移改变子组件屏幕坐标 → 必须重新布局
+    void SetScrollX(float x) { m_scrollX = x; ClampScroll(); InvalidateLayout(); }
+    void SetScrollY(float y) { m_scrollY = y; ClampScroll(); InvalidateLayout(); }
     float GetScrollX() const { return m_scrollX; }
     float GetScrollY() const { return m_scrollY; }
 

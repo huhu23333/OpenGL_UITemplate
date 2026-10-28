@@ -4,6 +4,7 @@
 #include "Types.h"
 #include "InputState.h"
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -41,6 +42,7 @@ public:
         T* raw = ptr.get();
         raw->m_parent = this;
         m_children.push_back(std::move(ptr));
+        ++s_layoutEpoch;  // 子组件增删影响布局
         return raw;
     }
     Component* GetParent() const { return m_parent; }
@@ -52,10 +54,10 @@ public:
     // ---- 几何（相对父组件尺寸的比例 + 绝对增减值，左上角原点，Y 向下）----
     // 实际像素 = 父组件相应尺寸 × 比例 + 绝对增减值。
     // 父组件尺寸变化时，比例部分自动缩放，绝对增减值部分保持不变。
-    void SetPositionRatio(float xr, float yr) { m_posXRatio = xr; m_posYRatio = yr; }
-    void SetPositionOffset(float x, float y) { m_posXOffset = x; m_posYOffset = y; }
-    void SetSizeRatio(float wr, float hr) { m_wRatio = wr; m_hRatio = hr; }
-    void SetSizeOffset(float w, float h) { m_wOffset = w; m_hOffset = h; }
+    void SetPositionRatio(float xr, float yr) { m_posXRatio = xr; m_posYRatio = yr; ++s_layoutEpoch; }
+    void SetPositionOffset(float x, float y) { m_posXOffset = x; m_posYOffset = y; ++s_layoutEpoch; }
+    void SetSizeRatio(float wr, float hr) { m_wRatio = wr; m_hRatio = hr; ++s_layoutEpoch; }
+    void SetSizeOffset(float w, float h) { m_wOffset = w; m_hOffset = h; ++s_layoutEpoch; }
     // 便捷：位置与尺寸均按父组件尺寸的比例设置（绝对增减值 = 0）
     void SetRectRatio(float xr, float yr, float wr, float hr) {
         SetPositionRatio(xr, yr);
@@ -67,10 +69,12 @@ public:
     void SetPosition(float x, float y) {
         m_posXRatio = 0; m_posYRatio = 0;
         m_localX = m_posXOffset = x; m_localY = m_posYOffset = y;
+        ++s_layoutEpoch;
     }
     void SetSize(float w, float h) {
         m_wRatio = 0; m_hRatio = 0;
         m_width = m_wOffset = w; m_height = m_hOffset = h;
+        ++s_layoutEpoch;
     }
     void SetRect(float x, float y, float w, float h) { SetPosition(x, y); SetSize(w, h); }
     // 查询布局后计算出的实际像素位置 / 尺寸
@@ -79,6 +83,12 @@ public:
 
     // 屏幕空间绝对矩形（输入/命中测试用），布局后有效
     const Rect& GetScreenRect() const { return m_screenAbs; }
+
+    // 布局代数：任何改变布局结果的状态（几何 setter / 子组件增删）都会自增。
+    // UIApplication 用它在同一帧内跳过重复的整树布局。
+    // 自定义组件若在 setter 之外修改了影响布局的状态，调用 InvalidateLayout() 显式标记。
+    static uint64_t LayoutEpoch() { return s_layoutEpoch; }
+    static void InvalidateLayout() { ++s_layoutEpoch; }
 
     // ---- 可见性 ----
     void SetVisible(bool v) { m_visible = v; }
@@ -209,6 +219,7 @@ protected:
     bool  m_captureMouse = false;
 
     static const InputState* s_globalInput;
+    static uint64_t s_layoutEpoch;
 
     // 让 UIApplication 直接访问受保护事件回调进行分发
     friend class UIApplication;

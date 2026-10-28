@@ -205,6 +205,9 @@ public:
     ~ImageDisplay() override;
 
     void SetImage(const cv::Mat& img);
+    // 流式更新（视频/相机逐帧）：复用既有纹理、不复制图像、不重置拖拽/框选状态。
+    // 不做深拷贝（GetImage() 返回共享缓冲），调用方不要原地改写同一个 cv::Mat。
+    bool UpdateImage(const cv::Mat& img);
     const cv::Mat& GetImage() const { return m_image; }
     bool HasImage() const { return m_tex != nullptr; }
     void SetFitMode(FitMode m) { m_fitMode = m; }

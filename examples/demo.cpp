@@ -7,6 +7,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
 
+#include <algorithm>
 #include <cstdio>
 #include <cmath>
 #include <chrono>
@@ -188,8 +189,8 @@ int main(int argc, char** argv) {
     }
 
     UIApplication::Config cfg;
-    cfg.renderWidth = 1920;
-    cfg.renderHeight = 1080;
+    cfg.renderWidth = 3840;
+    cfg.renderHeight = 2160;
     cfg.showWindow = !headless;
     cfg.windowWidth = 1280;
     cfg.windowHeight = 720;
@@ -350,11 +351,34 @@ int main(int argc, char** argv) {
     boxLabel->SetTextSupersample(1.0f);
     boxLabel->SetFontScale(1.0f);
     boxLabel->SetColor({0.3f, 1.0f, 0.6f, 1.0f});
-    boxLabel->SetText("drag inside image to draw a box (yolo normalized output)");
+    boxLabel->SetText("drag inside image to draw a box (yolo normalized output, updates every frame)");
 
     auto* imageDisp = root->AddChild<ImageDisplay>();
     place(imageDisp, 40, 360, 400, 300);
-    imageDisp->SetImage(MakeTestImage());
+
+    // ===== 图像显示（yolo 框选 + 逐帧更新）=====
+    // 底图 + 一条左右扫动的亮带：每帧用 UpdateImage() 上传新画面。
+    // UpdateImage 复用同一张纹理/转换缓冲，且不会打断正在进行的框选。
+    cv::Mat imageBase = MakeTestImage();
+    cv::Mat imageFrame = imageBase.clone();
+    imageDisp->SetImage(imageFrame);   // 初始帧（深拷贝语义）
+    const int sweepW = 28;
+    int sweepX = 0;
+    float sweepPhase = 0.0f;
+    auto animateImage = [&]() {
+        const int w = imageFrame.cols;
+        const int h = imageFrame.rows;
+        // 先把上一帧的亮带从底图恢复，再画新的位置（避免整图拷贝）
+        if (sweepX > 0)
+            imageBase(cv::Rect(sweepX, 0, sweepW, h)).copyTo(imageFrame(cv::Rect(sweepX, 0, sweepW, h)));
+        sweepPhase += 0.05f;
+        const int span = std::max(0, w - sweepW);
+        int next = (int)((0.5f + 0.5f * std::sin(sweepPhase)) * (float)span);
+        next = std::min(std::max(next, 0), span);
+        imageFrame(cv::Rect(next, 0, sweepW, h)).setTo(cv::Scalar(90, 210, 255));  // BGR 亮蓝
+        sweepX = next;
+        imageDisp->UpdateImage(imageFrame);  // 逐帧上传：复用纹理，不重建/不深拷贝
+    };
     imageDisp->SetOnBoxDrawn([&](ImageDisplay*, float cx, float cy, float w, float h) {
         char buf[128];
         std::snprintf(buf, sizeof(buf), "yolo box: cx=%.3f cy=%.3f w=%.3f h=%.3f", cx, cy, w, h);
@@ -429,6 +453,7 @@ int main(int argc, char** argv) {
     if (headless) {
         // 注入一次点击，验证交互，然后离屏渲染并保存图像。
         // 先跑一帧完成布局，再按按钮的实际屏幕中心注入，避免硬编码坐标依赖画布分辨率。
+        animateImage();
         app.RunFrame();
         Rect br = btn->GetScreenRect();
         app.InjectMousePos(br.x + br.w * 0.5f, br.y + br.h * 0.5f);
@@ -449,6 +474,7 @@ int main(int argc, char** argv) {
     // 显示模式主循环
     int lastFps = -1;
     while (!app.ShouldClose()) {
+        animateImage();   // 逐帧更新图像（UpdateImage），框选过程中也持续更新
         app.RunFrame();
         frc.tick();
         int f = (int)std::lround(frc.fps());

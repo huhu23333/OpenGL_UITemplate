@@ -23,7 +23,10 @@ void CanvasGroup::SetCanvasSize(float w, float h) {
     m_requestedCanvasH = std::isfinite(h) && h > 0.0f ? h : 0.0f;
     float cw = std::ceil(m_requestedCanvasW > 0 ? m_requestedCanvasW : std::max(0.0f, m_width));
     float ch = std::ceil(m_requestedCanvasH > 0 ? m_requestedCanvasH : std::max(0.0f, m_height));
-    if (cw != m_canvasW || ch != m_canvasH) m_canvasDirty = true;
+    if (cw != m_canvasW || ch != m_canvasH) {
+        m_canvasDirty = true;
+        InvalidateLayout();  // 画布尺寸决定子组件布局空间
+    }
     m_canvasW = cw;
     m_canvasH = ch;
     ClampScroll();
@@ -33,6 +36,7 @@ void CanvasGroup::SetScrollOffset(float dx, float dy) {
     m_scrollX = dx;
     m_scrollY = dy;
     ClampScroll();
+    InvalidateLayout();  // 滚动偏移影响子组件屏幕坐标
 }
 
 void CanvasGroup::ClampScroll() {
@@ -54,8 +58,7 @@ void CanvasGroup::OnLayoutSelf() {
 
 void CanvasGroup::EnsureCanvas() {
     if (!m_canvasDirty) return;
-    GLint maxSize = 0;
-    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxSize);
+    const GLint maxSize = Texture::MaxSize();
     if (m_canvasW <= 0 || m_canvasH <= 0 || m_canvasW > maxSize || m_canvasH > maxSize) return;
 
     GLint previousDraw = 0;
@@ -96,7 +99,6 @@ void CanvasGroup::Render(Renderer2D& r, const Rect& clip) {
     if (m_canvasDirty || !m_fbo || !m_canvasTex) return;
 
     // ---- 1. 渲染自身与子组件到虚拟画布 ----
-    r.Flush();
     GLint prevFbo = 0;
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_fbo);

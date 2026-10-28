@@ -12,6 +12,9 @@
 - **自透明度**：`SetOpacity` 只影响自身绘制，不影响子组件。
 - **输入**：可查询鼠标在每个组件中的相对位置、点击状态、键盘按键状态，支持鼠标捕获。
 - **内置组件**：按钮、滑块、文字、文本框、图像显示（yolo 格式归一化框选）、虚拟画布容器（→ 滚动菜单、下拉菜单）。
+- **逐帧图像更新**：`ImageDisplay::UpdateImage()` 复用纹理与转换缓冲，可逐帧喂视频/相机画面；更新图像不会打断拖拽/框选。
+- **按需帧读回**：只有调用 `GetFrame()/GetFrameBGRA()` 时才 `glReadPixels`；纯显示场景没有读回开销。
+- **性能埋点**：`UIApplication::GetFrameStats()` 给出每帧各阶段耗时与 draw call / 纹理切换 / scissor 切换等计数；`tests/` 下的 `ui_frame_bench` 为可复现基准。
 
 ## 依赖
 
@@ -38,12 +41,19 @@ cmake --build build -j
 
 产物：`build/bin/demo`、`build/lib/libui.a`。
 
-回归测试（默认随构建一起编译，`-DUI_BUILD_TESTS=OFF` 可关闭）：
+测试与性能基准集中在独立工程 `tests/` 中，**不随外层工程一起构建**：
 
 ```bash
-ctest --test-dir build --output-on-failure   # 离屏渲染/alpha/裁剪/输入/UTF-8/生命周期
-./build/bin/ui_window_regression              # 窗口 letterbox/resize（需显示服务）
+# 独立配置/构建测试目录（复用同一份源码与依赖）
+cmake -S tests -B build-tests
+cmake --build build-tests -j
+ctest --test-dir build-tests --output-on-failure   # 离屏渲染/alpha/裁剪/输入/UTF-8/生命周期
+./build-tests/bin/ui_window_regression              # 窗口 letterbox/resize（需显示服务）
+./build-tests/bin/ui_frame_bench                    # 性能基准（无头）
+./build-tests/bin/ui_frame_bench --window-only      # 性能基准（窗口 present）
 ```
+
+说明与前后对比数据见 `tests/README.md`。
 
 ## 运行
 
@@ -61,7 +71,7 @@ ctest --test-dir build --output-on-failure   # 离屏渲染/alpha/裁剪/输入/
 
 - **帧率显示**：移植的 `common/FrameRateCounter`（滑动平均），在画布右上角以文字显示 FPS。
 - **按钮 / 滑块 / 文本框 / 下拉菜单 / 滚动菜单**：基础交互组件。
-- **图像显示 + yolo 框选**：拖拽输出归一化 (cx, cy, w, h)。
+- **图像显示 + yolo 框选 + 逐帧更新**：每帧用 `UpdateImage()` 更新图像（亮带扫动），拖拽框选过程中持续更新，输出归一化 (cx, cy, w, h)。
 - **鼠标捕获框**：点击框体捕获鼠标，按 `ESC` 释放；捕获期间以文字显示鼠标移动速度，并在框内用**带长度的箭头**可视化方向与大小。
 - **日志栏**：带边框、可滚动（滚轮）的文字栏，滚动显示按钮点击/滑块/下拉/图像框选等事件。
 - **透明度叠加**：一个半透明蓝色矩形**半叠**在不透明橙色矩形上，其透明度由滑条实时驱动（0%–100%）。
@@ -101,6 +111,22 @@ int main() {
 }
 ```
 
+### 逐帧更新图像（视频 / 相机）
+
+```cpp
+// 一次性设置：深拷贝，GetImage() 与调用方数据解耦
+imageDisp->SetImage(firstFrame);
+
+while (!app.ShouldClose()) {
+    cv::Mat frame;                 // BGR，来自 VideoCapture / 相机
+    cap >> frame;
+    if (!frame.empty()) imageDisp->UpdateImage(frame);  // 复用纹理/缓冲，可逐帧更新
+    app.RunFrame();
+}
+```
+
+`UpdateImage` 不做深拷贝（`GetImage()` 返回共享缓冲），因此不要原地改写同一个 `cv::Mat`；尺寸变化时会自动重建纹理存储。
+
 ## 组件层级模型
 
 - 根组件 = 整幅离屏图像（`SetRoot` 的组件，矩形 = 渲染分辨率）。
@@ -117,7 +143,7 @@ int main() {
 | `Slider` | 值域、拖拽（自动捕获鼠标）、值变化回调 |
 | `Text` | 文本、字号、颜色、水平/垂直对齐、可选背景 |
 | `TextBox` | 单行输入、焦点、光标移动、退格/删除、回车提交、UTF-8 编辑 |
-| `ImageDisplay` | 显示 `cv::Mat`（Stretch/Contain/Cover），点击/拖拽输出 **yolo 格式归一化** (cx, cy, w, h) |
+| `ImageDisplay` | 显示 `cv::Mat`（Stretch/Contain/Cover），点击/拖拽输出 **yolo 格式归一化** (cx, cy, w, h)；`SetImage` 深拷贝、`UpdateImage` 逐帧流式更新（复用纹理，不打断框选） |
 | `CanvasGroup` | 虚拟画布容器（见下） |
 | `ScrollView` | 滚动菜单（虚拟画布 + 滚动条 + 滚轮/拖拽） |
 | `Dropdown` | 下拉菜单（头部按钮 + 弹出选项列表） |
@@ -159,16 +185,24 @@ include/ui/
   UIApplication.h  应用（离屏 FBO/letterbox/cv 输出/输入分发）
 src/               对应实现
 examples/demo.cpp  应用实例
+tests/             测试与性能基准（独立 CMake 工程，不随外层构建）
 ```
 
 关键实现要点：
 
 - **渲染后端**：GLES3（`<GLES3/gl3.h>`，全核心函数，无需 GLEW）。窗口模式用 GLFW 的 `GLFW_OPENGL_ES_API`，无头模式用 EGL surfaceless + PBuffer，两种模式共享同一套渲染代码与着色器（GLSL ES 3.00）。
-- **纹理约定**：统一采用 GL 标准 `v=1=顶部`；`cv::Mat` 上传时自动垂直翻转，FBO 渲染目标天然一致，因此离屏纹理可直接 blit 到窗口或读回图像而不翻转。
+- **纹理朝向**：`Texture::TopDown()` 标记纹理行 0 是否为图像顶部。`cv::Mat` 上传时**不做 CPU 翻转**（`TopDown=true`），由 `Renderer2D` 在采样时翻转 V；FBO 渲染目标保持 `v=1=顶部`（`TopDown=false`）。两类纹理可无缝混用。
+- **逐帧上传快路径**：`Texture` 复用 RGBA 转换缓冲；尺寸不变时走 `glTexSubImage2D`；1/3 通道输入 alpha 恒为 255，跳过预乘；4 通道单遍原地预乘。
+- **懒读回**：`RenderOffscreen()` 只渲染不读回；`GetFrame()/GetFrameBGRA()` 首次访问时才对最近的离屏帧做 `glReadPixels` + 翻转/通道交换（OpenCV SIMD）。
+- **布局去重**：几何 setter / 子组件增删会自增布局代数，`UIApplication` 在同一帧内只做一次整树布局（自定义组件在 setter 之外改布局时调用 `InvalidateLayout()`）。滚动偏移改变子组件屏幕坐标，也会触发重新布局。
+- **绘制批处理**：`Renderer2D` 按纹理切换与 scissor 状态切分批次；scissor 状态未变化时不提交批次；叶子组件与"自身/子组件同裁剪"的容器只切换一次 scissor。
 - **虚拟画布重定向**：`CanvasGroup::Render` 保存/恢复当前 FBO 绑定与视口，把子组件渲染到自己的 FBO，再 `DrawTextureSub` 按滚动偏移合成回父画布。
 
 ## 已知限制（模板级简化，可按需扩展）
 
 - 文本渲染使用 HarfBuzz + FreeType 矢量轮廓（通过 Fontconfig 发现字体，支持中文等任意 Unicode），不再用 OpenCV Hershey 位图。
-- 无头模式依赖 Linux EGL surfaceless；其他平台需自行适配（如 OSMesa）。
+- 文本/按钮标签各自持有独立纹理，跨组件无法合批（每帧约与文字组件数同量级的 draw call）；文本图集（atlas）是后续可做的优化。
+- 需要 CPU 像素时（每帧调用 `GetFrame*`），`glReadPixels` + 格式转换约 1.4ms（1080p，软件渲染；真实 GPU 取决于驱动），属于读回本身的成本。
+- 缩小呈现时每帧生成 mipmap（~1ms/帧，软件渲染下明显）；仅在 `scale < 1` 时进行，放大呈现不做。
+- 无头模式依赖 Linux EGL surfaceless；其他平台需自行适配（如 OSMesa）。同一进程内混用 EGL 无头上下文与 GLX 窗口上下文在部分 Mesa 环境会冲突（基准程序用 `--window-only` 单独测窗口模式）。
 - 下拉菜单收起不自动响应"点击外部"，需通过头部按钮切换。

@@ -1,4 +1,5 @@
 build/
+build-tests/
 headless_output.png
 *.png
 *.o

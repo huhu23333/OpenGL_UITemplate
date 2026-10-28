@@ -432,6 +432,34 @@ int main() {
         Check(boxes == 0 && imageClicks == 1 && !image->WantsMouseCapture(), "hidden image cancels without callback");
         image->SetImage(cv::Mat(2, 2, CV_32FC3)); Check(!image->HasImage(), "unsupported image rejected");
 
+        // 逐帧更新图像不得打断进行中的框选（流式画面 + 交互共存）。
+        root = app.SetRoot<Component>();
+        auto* liveImage = root->AddChild<ImageDisplay>();
+        liveImage->SetRect(0, 0, 40, 40);
+        int liveBoxes = 0;
+        liveImage->SetOnBoxDrawn([&](ImageDisplay*, float, float, float, float) { ++liveBoxes; });
+        liveImage->SetImage(cv::Mat(4, 4, CV_8UC4, cv::Scalar(0, 0, 255, 255)));
+        app.InjectMousePos(5, 5); app.InjectMouseButton(MouseButton::Left, true); app.RunFrame();
+        Check(liveImage->WantsMouseCapture(), "image drag starts capture");
+        liveImage->SetImage(cv::Mat(4, 4, CV_8UC4, cv::Scalar(255, 0, 0, 255)));
+        app.RunFrame();
+        Check(liveImage->WantsMouseCapture(), "SetImage keeps drag capture");
+        liveImage->UpdateImage(cv::Mat(4, 4, CV_8UC3, cv::Scalar(0, 255, 0)));
+        app.RunFrame();
+        Check(liveImage->WantsMouseCapture(), "UpdateImage keeps drag capture");
+        app.InjectMousePos(30, 30); app.InjectMouseButton(MouseButton::Left, false); app.RunFrame();
+        Check(liveBoxes == 1 && !liveImage->WantsMouseCapture(),
+              "SetImage/UpdateImage keep drag alive and box commits once");
+
+        // 性能埋点与懒读回回归：每帧只布局一次；像素读回推迟到真正请求帧时。
+        app.InjectMousePos(0, 0);
+        app.RunFrame();
+        Check(app.GetFrameStats().layoutCalls == 1, "single layout per frame");
+        app.RenderOffscreen();
+        Check(app.GetFrameStats().captureMs == 0.0, "readback deferred until frame requested");
+        app.GetFrameBGRA();
+        Check(app.GetFrameStats().captureMs > 0.0, "readback measured on demand");
+
         // FBO, viewport, scissor and pack state are restored, independent read/draw bindings.
         GLuint fb[2]; glGenFramebuffers(2, fb);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fb[0]); glBindFramebuffer(GL_READ_FRAMEBUFFER, fb[1]);
